@@ -1,0 +1,26 @@
+First of all:
+set correct SDK/NDK/compiler paths in the lib_sundog/sundog_makefile.inc
+
+Android:
+1) run resources/collect_android_resources; this will create the following files:
+  * android_project/app/src/main/res/raw/files - ZIP with all Pixilang examples; this file will be unpacked into the app internal storage on the first start;
+  * android_project/app/src/main/res/raw/hash - hash of the above file;
+2) run MAKE_ANDROID; this will compile the Pixilang native code (android_project/app/src/main/jniLibs)
+3) open android_project/ in Android Studio and build the APK.
+
+iOS:
+open ios_project/ in XCode and build the app.
+
+macOS:
+open macos_project/ in XCode and build the app.
+
+Other systems:
+just use one of the MAKE_* scripts in Linux/macOS Terminal;
+the built version of the app will be copied to one of the bin/* folders
+
+When the build is finished:
+make clean
+
+Requirements:
+make, gcc, MinGW (Windows), Android NDK
+Linux libs: libsdl2-dev, libasound2-dev, libjack-jackd2-dev

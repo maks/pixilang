@@ -1,0 +1,18 @@
+#ifdef __OBJC__
+#import <Cocoa/Cocoa.h>
+#endif
+
+#define OPENGL
+#define GLNORETAIN
+#define GLZBUF
+#define COLOR32BITS 
+#define CPUMARK 10 
+#define NOVIDEO
+#define NOVCAP
+#define PS_STYPE_FLOAT32
+#define SUNVOX_LIB
+#define SUNVOX_LIB_WITH_SAVE
+
+#ifdef __cplusplus
+#import "sundog.h"
+#endif

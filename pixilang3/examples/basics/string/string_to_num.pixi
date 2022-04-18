@@ -1,0 +1,11 @@
+include "../show_log.pixi"
+
+s = "2.2"
+v = str2num( s ) //string -> number
+logf( "str2num( %s ) = %f\n", s, v )
+
+s = "-1234"
+v = str2num( s ) //string -> number
+logf( "str2num( %s ) = %d\n", s, v )
+
+show_log()

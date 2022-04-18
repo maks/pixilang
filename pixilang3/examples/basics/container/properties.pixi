@@ -1,0 +1,37 @@
+include "../show_log.pixi"
+
+//Create containers:
+a = new( 4, 1, INT )
+b = new( 4, 1, INT )
+
+//Change container properties:
+
+a.prop1 = 32
+logf( "a.prop1 = %d\n", a.prop1 )
+
+remove_prop( a, "prop1" )
+logf( "a.prop1 = %d\n", get_prop( a, "prop1", -1 ) )
+
+a.prop2 = b
+b.size = 100
+logf( "a.prop2 = %d\n", a.prop2 )
+logf( "b.size = %d\n", b.size )
+logf( "a.prop2.size = %d\n", a.prop2.size )
+
+a[ 2 ] = b
+logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
+
+a[ 2 ].size = 105
+logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
+
+a[ 2 ].size + a.prop1
+logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
+
+set_prop( a[ 2 ], "size", 111 )
+logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
+
+a[ 2 ].yet_another_container = new( 4, 4, INT )
+a[ 2 ].yet_another_container[ 1 ] = 44
+logf( "a[ 2 ].yet_another_container[ 1 ] = %d\n", a[ 2 ].yet_another_container[ 1 ] )
+
+show_log()
