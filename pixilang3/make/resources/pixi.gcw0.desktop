@@ -1,11 +1,11 @@
 [Desktop Entry]
-Name=Pixi
+Name=Pixilang
 Comment=Pixilang
-Exec=pixilang.dge 8bit_sine.pixi
+Exec=pixilang.dge %f
 Terminal=true
 Type=Application
 StartupNotify=true
+MimeType=text/plain;
 Icon=pixilang
 Categories=applications;
 X-OD-Manual=readme.txt
-Comment[es]=pixi
