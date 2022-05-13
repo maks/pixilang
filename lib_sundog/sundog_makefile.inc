@@ -44,6 +44,8 @@ else
     IOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS15.2.sdk
 endif
 RPI_SDK = /opt/vc
+#OPENDINGUX_SDK = /opt/dingux_toolchain
+OPENDINGUX_SDK = /opt/gcw0-toolchain
 
 ##
 ## Target configuration
@@ -90,6 +92,23 @@ endif
 ##
 ifneq (,$(findstring maemo,$(TARGET_OS)))
     CFLAGS2 += -DOS_MAEMO
+    LDFLAGS2 += -L$(RPI_SDK)/lib
+endif
+##
+## Linux: Opendingux
+##
+ifneq (,$(findstring opendingux,$(TARGET_OS)))
+    # SYSROOT = $(OPENDINGUX_SDK)/toolchain/mipsel-buildroot-linux-uclibc/sysroot
+    SYSROOT = $(OPENDINGUX_SDK)/mipsel-gcw0-linux-uclibc/sysroot/
+    # CC = $(OPENDINGUX_SDK)/toolchain/bin/mipsel-linux-gcc
+    CC = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-gcc
+    # CXX = $(OPENDINGUX_SDK)/toolchain/bin/mipsel-linux-g++
+    CXX = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-g++
+    LD = $(CC)
+    # OBJDUMP = $(OPENDINGUX_SDK)/toolchain/bin/mipsel-linux-objdump
+    OBJDUMP = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-objdump
+    # CFLAGS2 += -DOS_OPENDINGUX -DCPUMARK=10 -I$(OPENDINGUX_SDK)/libs/SDL2/include 
+    CFLAGS2 += -DOS_OPENDINGUX -DCPUMARK=10 -I$(SYSROOT)/usr/include/SDL2 
 endif
 ##
 ## Linux: Android
@@ -339,6 +358,15 @@ else
     CFLAGS2 += -DCPUMARK=10 
 endif
 endif
+
+##
+## MIPS
+##
+# TODO: not working for some reason?
+# ifeq (,$(findstring mips,$(TARGET_ARCH)))
+    # CFLAGS2 += -DCPUMARK=10 
+# endif
+
 
 ##
 ## Handling additional MAKE_xxx options

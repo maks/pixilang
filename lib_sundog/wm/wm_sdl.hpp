@@ -640,8 +640,10 @@ int device_start( const char* name, int xsize, int ysize, window_manager* wm )
     {
 	if( !dd ) break;
 	
+	#ifdef X11
 	if( XInitThreads() == 0 ) slog( "XInitThreads failed\n" );
-    
+  #endif //X11  
+
 	wm->prev_frame_time = 0;
 	wm->frame_len = 1000 / wm->max_fps;
 	wm->ticks_per_frame = stime_ticks_per_second_hires() / wm->max_fps;

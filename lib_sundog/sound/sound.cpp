@@ -41,6 +41,8 @@ int sundog_sound_set_defaults( sundog_sound* ss );
     #ifdef OS_ANDROID
 	#include "sound_android.hpp"
 	#include "sound_android_midi.hpp"
+    #elif OS_OPENDINGUX
+    #include "sound_linux.hpp"
     #else
 	#include "sound_linux.hpp"
 	#include "sound_linux_midi.hpp"
