@@ -1,7 +1,7 @@
 /*
     sundog_bridge.mm - SunDog<->System bridge
     This file is part of the SunDog engine.
-    Copyright (C) 2009 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2009 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -465,7 +465,7 @@ int ios_sundog_copy( sundog_engine* s, const char* filename, uint32_t flags )
     while( 1 )
     {
 	NSString* dataType = (NSString*)kUTTypeUTF8PlainText;
-	int ctype = sfs_get_clipboard_type( sfs_get_file_type( filename, 0 ) );
+	int ctype = sfs_get_clipboard_type( sfs_get_file_format( filename, 0 ) );
 	switch( ctype )
 	{
 	    case sclipboard_type_image: dataType = (NSString*)kUTTypeImage; break;
@@ -635,11 +635,11 @@ void ios_sundog_send_file_to_gallery( sundog_engine* s, const char* file_path )
 {
     NSAutoreleasePool* pool = [ [ NSAutoreleasePool alloc ] init ];
 
-    switch( sfs_get_file_type( file_path, 0 ) )
+    switch( sfs_get_file_format( file_path, 0 ) )
     {
-	case SFS_FILE_TYPE_JPEG:
-	case SFS_FILE_TYPE_PNG:
-	case SFS_FILE_TYPE_GIF:
+	case SFS_FILE_FMT_JPEG:
+	case SFS_FILE_FMT_PNG:
+	case SFS_FILE_FMT_GIF:
 	    {
 		UIImage* img = [ UIImage imageWithContentsOfFile:[ NSString stringWithUTF8String:file_path ] ];
 		if( img == 0 )
@@ -653,7 +653,7 @@ void ios_sundog_send_file_to_gallery( sundog_engine* s, const char* file_path )
 		}
 	    }
 	    break;
-	case SFS_FILE_TYPE_AVI:
+	case SFS_FILE_FMT_AVI:
 	    {
 		if( UIVideoAtPathIsCompatibleWithSavedPhotosAlbum( [ NSString stringWithUTF8String:file_path ] ) )
 		{
@@ -747,12 +747,6 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
 // MyView
 //
 
-#ifdef NATIVE_SCREEN_HIRES
-    #define CONTENT_SCALE_FACTOR [ UIScreen mainScreen ].nativeScale
-#else
-    #define CONTENT_SCALE_FACTOR 1.0f
-#endif
-
 @implementation MyView
 {
     ios_sundog_engine* sd;
@@ -821,7 +815,7 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
 - (void)didMoveToWindow //Tells the view that its window object changed
 {
     [ super didMoveToWindow ];
-    self.contentScaleFactor = CONTENT_SCALE_FACTOR; //TODO: is it not required here? Need to check.
+    //self.contentScaleFactor = CONTENT_SCALE_FACTOR; //TODO: not required here? Need to check.
 }
 
 - (void)setSafeArea
@@ -877,7 +871,8 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
 	//printf( "Framebuffer size: %d %d\n", backingWidth, backingHeight );
 	sd->s.screen_xsize = backingWidth;
 	sd->s.screen_ysize = backingHeight;
-	sd->s.screen_ppi = 160 * CONTENT_SCALE_FACTOR;
+        sd->s.screen_ppi = 160 * self.contentScaleFactor; //CONTENT_SCALE_FACTOR;
+        //160 must be replaced by 163 for iPhone and 132 for iPad?
 	[ self setSafeArea ];
 	COMPILER_MEMORY_BARRIER();
 	sd->s.screen_changed_w++;
@@ -945,9 +940,21 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
     sd->gl_context = context;
 }
 
+static NSString* get_appsupport_file_content( NSString* fname )
+{
+    NSArray* paths = NSSearchPathForDirectoriesInDomains( NSApplicationSupportDirectory, NSUserDomainMask, YES );
+    NSString* dir = [paths objectAtIndex:0];
+    dir = [dir stringByAppendingFormat:@"/%@", [NSString stringWithUTF8String:g_app_name_short]];
+    NSString* path = [dir stringByAppendingPathComponent:fname];
+    NSError* err;
+    NSString* content = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&err];
+    return content;
+}
+
 - (int)viewInit
 {
     slog( "viewInit() ...\n" );
+
     //1.0 - logical coordinate system; points instead of pixels; PPI ~160;
     //2.0 - x2 resolution;
     //...
@@ -956,7 +963,20 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
     //When [ UIScreen mainScreen ].nativeScale != [ UIScreen mainScreen ].scale (for example 2.6 != 3.0 on iPhone 8 Plus) ->
     // -> iOS first renders the content at the SCALE factor (desired resolution with integer scale factor)
     // and then scales it to the native resolution (lower than desired).
-    self.contentScaleFactor = CONTENT_SCALE_FACTOR;
+    float scale = 1.0f;
+#ifdef NATIVE_SCREEN_HIRES
+    scale = [ UIScreen mainScreen ].nativeScale;
+#else
+    scale = 1.0f;
+#endif
+    NSString* opt_res = get_appsupport_file_content( @"opt_resolution" );
+    if( opt_res )
+    {
+        if( [ opt_res containsString:@"low" ] ) scale = 1.0f; //low resolution
+        if( [ opt_res containsString:@"high" ] ) scale = [ UIScreen mainScreen ].nativeScale; //high resolution
+    }
+    self.contentScaleFactor = scale;
+
     if( ![ self createFramebuffer ] )
     {
 	[ self release ];
@@ -1039,7 +1059,7 @@ int ios_sundog_export_import_file( sundog_engine* s, const char* filename, uint3
     slog( "layoutSubviews() ...\n" );
     if( sd == NULL ) return;
    
-    self.contentScaleFactor = CONTENT_SCALE_FACTOR; //TODO: is it not required here? Need to check.
+    //self.contentScaleFactor = CONTENT_SCALE_FACTOR; //TODO: not required here? Need to check.
     CGRect b = self.bounds;
     if( sd->s.screen_xsize != (int)b.size.width || sd->s.screen_ysize != (int)b.size.height )
     {

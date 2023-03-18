@@ -20,10 +20,11 @@ struct device_midi_port;
 #define COMMON_MIDIPORT_VARIABLES \
     uint8_t			data[ MIDI_BYTES ]; \
     sundog_midi_event		events[ MIDI_EVENTS ]; \
-    volatile			uint data_rp; \
-    volatile			uint data_wp; \
-    volatile			uint evt_rp; \
-    volatile			uint evt_wp;
+    std::atomic_uint 		data_rp; \
+    volatile uint 		data_wp; \
+    std::atomic_uint		evt_rp; \
+    std::atomic_uint 		evt_wp;
+static void init_common_midiport_vars( device_midi_port* port );
 static void write_received_midi_data( device_midi_port* port, uint8_t* bytes, int size, ticks_hr_t t );
 static void next_midi_event( device_midi_port* port );
 static sundog_midi_event* get_midi_event( device_midi_port* port );
@@ -61,51 +62,67 @@ static void remove_input_buffers( sundog_sound* ss );
 
 #ifndef NOMIDI
 
+//Single Writer - Single Reader
+
+static void init_common_midiport_vars( device_midi_port* port )
+{
+    atomic_init( &port->evt_wp, (uint)0 );
+}
+
 static void write_received_midi_data( device_midi_port* port, uint8_t* bytes, int size, ticks_hr_t t )
 {
     uint empty_data = 0;
     if( port->data_wp + size > MIDI_BYTES )
 	empty_data = MIDI_BYTES - port->data_wp;
-    uint can_write = ( port->data_rp - port->data_wp ) & ( MIDI_BYTES - 1 );
+    uint data_rp = atomic_load_explicit( &port->data_rp, std::memory_order_relaxed );
+    uint can_write = ( data_rp - port->data_wp ) & ( MIDI_BYTES - 1 );
     if( can_write == 0 ) can_write = MIDI_BYTES;
-    if( ( ( port->data_wp + can_write ) & ( MIDI_BYTES - 1 ) ) == port->data_rp ) can_write--;
+    if( ( ( port->data_wp + can_write ) & ( MIDI_BYTES - 1 ) ) == data_rp ) can_write--;
     if( empty_data + size <= can_write )
     {
-        if( ( ( port->evt_rp - port->evt_wp ) & ( MIDI_EVENTS - 1 ) ) != 1 )
+	uint evt_rp = atomic_load_explicit( &port->evt_rp, std::memory_order_relaxed );
+	uint evt_wp = atomic_load_explicit( &port->evt_wp, std::memory_order_relaxed );
+        if( ( ( evt_rp - evt_wp ) & ( MIDI_EVENTS - 1 ) ) != 1 )
         {
             for( int b = 0; b < size; b++ )
             {
                 port->data[ ( port->data_wp + b + empty_data ) & ( MIDI_BYTES - 1 ) ] = bytes[ b ];
             }
-            sundog_midi_event* evt = &port->events[ port->evt_wp ];
+            sundog_midi_event* evt = &port->events[ evt_wp ];
             evt->t = t;
             evt->size = size;
             evt->data = port->data + ( ( port->data_wp + empty_data ) & ( MIDI_BYTES - 1 ) );
             uint new_data_wp = ( port->data_wp + size + empty_data ) & ( MIDI_BYTES - 1 );
             port->data_wp = new_data_wp;
-            uint new_evt_wp = ( port->evt_wp + 1 ) & ( MIDI_EVENTS - 1 );
-            COMPILER_MEMORY_BARRIER();
-            port->evt_wp = new_evt_wp;
+            COMPILER_MEMORY_BARRIER(); //for compatibility with older compilers and devices
+	    atomic_store_explicit( &port->evt_wp, ( evt_wp + 1 ) & ( MIDI_EVENTS - 1 ), std::memory_order_release );
         }
     }
 }
 
-static void next_midi_event( device_midi_port* port )
+static void next_midi_event( device_midi_port* port ) //only after sucessful get_midi_event()
 {
-    if( port->evt_rp == port->evt_wp ) return; //No events
-    sundog_midi_event* evt = &port->events[ port->evt_rp ];
-    uint new_evt_rp = ( port->evt_rp + 1 ) & ( MIDI_EVENTS - 1 );
+    uint evt_rp = atomic_load_explicit( &port->evt_rp, std::memory_order_relaxed );
+    uint evt_wp = atomic_load_explicit( &port->evt_wp, std::memory_order_relaxed );
+    if( evt_rp == evt_wp ) return; //No events
+    sundog_midi_event* evt = &port->events[ evt_rp ];
+    evt_rp = ( evt_rp + 1 ) & ( MIDI_EVENTS - 1 );
     size_t p = evt->data - port->data;
     p += evt->size;
-    uint new_data_rp = (uint)p & ( MIDI_BYTES - 1 );
-    port->evt_rp = new_evt_rp;
-    port->data_rp = new_data_rp;
+    atomic_store_explicit( &port->evt_rp, evt_rp, std::memory_order_relaxed );
+    atomic_store_explicit( &port->data_rp, (uint)p & ( MIDI_BYTES - 1 ), std::memory_order_relaxed );
 }
 
 static sundog_midi_event* get_midi_event( device_midi_port* port )
 {
-    if( port->evt_rp == port->evt_wp ) return NULL; //No events
-    sundog_midi_event* evt = &port->events[ port->evt_rp ];
+    uint evt_rp = atomic_load_explicit( &port->evt_rp, std::memory_order_relaxed );
+    uint evt_wp = atomic_load_explicit( &port->evt_wp, std::memory_order_relaxed );
+    if( evt_rp == evt_wp ) return NULL; //No events
+    //Here evt_wp may be equal to some old cached value...
+    //All writes before port->evt_wp=evt_wp (memory_order_release) (in other thread) will be available after this fence:
+    atomic_thread_fence( std::memory_order_acquire );
+    //Here we can read the actual event data (corresponding to the evt_wp)...
+    sundog_midi_event* evt = &port->events[ evt_rp ];
     return evt;
 }
 

@@ -1,7 +1,7 @@
 /*
     pixilang_vm.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -50,33 +50,80 @@ int pix_vm_init( pix_vm* vm, WINDOWPTR win )
     while( 1 )
     {
 	smem_clear( vm, sizeof( pix_vm ) );
-	
+
 	vm->win = win;
 	vm->wm = win->wm;
-    
+
 	//Containers:
-	size_t c_num = 8192;
+	{
+	    size_t c_num = 8192;
 #ifdef PIXI_CONTAINERS_NUM
-	c_num = PIXI_CONTAINERS_NUM;
+	    c_num = PIXI_CONTAINERS_NUM;
 #endif
-	for( int i = 0; g_app_options[ i ].n != NULL; i++ )
-	{
-	    if( smem_strcmp( g_app_options[ i ].n, "pixi_containers_num" ) == 0 )
+	    for( int i = 0; g_app_options[ i ].n != NULL; i++ )
 	    {
-		c_num = g_app_options[ i ].v;
-		break;
+		if( smem_strcmp( g_app_options[ i ].n, "pixi_containers_num" ) == 0 )
+		{
+		    c_num = g_app_options[ i ].v;
+		    break;
+		}
 	    }
+	    vm->c_num = sprofile_get_int_value( "pixi_containers_num", c_num, 0 );
+	    vm->c = (pix_vm_container**)smem_znew( sizeof( pix_vm_container* ) * vm->c_num );
+	    if( !vm->c )
+	    {
+		slog( "Memory allocation error (containers)\n" );
+		break;
+    	    }
+    	    smutex_init( &vm->c_mutex, 0 );
+	    vm->c_counter = 0;
 	}
-	vm->c_num = sprofile_get_int_value( "pixi_containers_num", c_num, 0 );
-	vm->c = (pix_vm_container**)smem_new( sizeof( pix_vm_container* ) * vm->c_num );
-	if( vm->c == 0 )
+
+	//Timers:
 	{
-	    slog( "Memory allocation error (containers)\n" );
-	    break;
-        }
-	smem_zero( vm->c );
-        smutex_init( &vm->c_mutex, 0 );
-	vm->c_counter = 0;
+	    int timers_num = 16;
+#ifdef PIXI_TIMERS_NUM
+	    timers_num = PIXI_TIMERS_NUM;
+#endif
+	    for( int i = 0; g_app_options[ i ].n != NULL; i++ )
+	    {
+		if( smem_strcmp( g_app_options[ i ].n, "pixi_timers_num" ) == 0 )
+		{
+		    timers_num = g_app_options[ i ].v;
+		    break;
+		}
+	    }
+	    vm->timers_num = sprofile_get_int_value( "pixi_timers_num", timers_num, 0 );
+	    vm->timers = (uint*)smem_znew( sizeof( uint ) * vm->timers_num );
+	    if( !vm->timers )
+	    {
+		slog( "Memory allocation error (timers)\n" );
+		break;
+    	    }
+    	}
+
+	//Fonts:
+	{
+	    int fonts_num = 8;
+#ifdef PIXI_FONTS_NUM
+	    fonts_num = PIXI_FONTS_NUM;
+#endif
+	    for( int i = 0; g_app_options[ i ].n != NULL; i++ )
+	    {
+		if( smem_strcmp( g_app_options[ i ].n, "pixi_fonts_num" ) == 0 )
+		{
+		    fonts_num = g_app_options[ i ].v;
+		    break;
+		}
+	    }
+	    vm->fonts_num = sprofile_get_int_value( "pixi_fonts_num", fonts_num, 0 );
+	    vm->fonts = (pix_vm_font*)smem_znew( sizeof( pix_vm_font ) * vm->fonts_num );
+	    if( !vm->fonts )
+	    {
+		slog( "Memory allocation error (fonts)\n" );
+		break;
+    	    }
+    	}
     
         //Events:
 	smutex_init( &vm->events_mutex, 0 );
@@ -135,10 +182,10 @@ int pix_vm_deinit( pix_vm* vm )
 {
     int rv = 0;
 
-    if( vm == 0 ) return 2;
-    
+    if( !vm ) return 2;
+
     vm->ready = 0;
-    
+
     //Stop separate threads created by Pixilang:
     int sleep_counter = 0;
     int sleep_counter_deadline = 2000;
@@ -180,7 +227,7 @@ int pix_vm_deinit( pix_vm* vm )
 	}
 	smutex_unlock( &vm->th_mutex );
     }
-    
+
     //Close audio stream:
     PIX_VAL u;
     u.i = 0;
@@ -192,7 +239,7 @@ int pix_vm_deinit( pix_vm* vm )
 	pix_vm_sv_remove( i, vm );
     }
 #endif
-    
+
     //Remove all threads data:
     for( int i = 0; i < PIX_VM_THREADS; i++ )
     {
@@ -200,7 +247,7 @@ int pix_vm_deinit( pix_vm* vm )
 	if( vm->th[ i ] )
 	{
 	    smem_free( vm->th[ i ] );
-	    vm->th[ i ] = 0;
+	    vm->th[ i ] = NULL;
 	}
 	smutex_unlock( &vm->th_mutex );
     }
@@ -210,9 +257,13 @@ int pix_vm_deinit( pix_vm* vm )
     smutex_lock( &vm->log_mutex );
     smem_free( vm->log_buffer );
     smem_free( vm->log_prev_msg );
-    vm->log_buffer = 0;
-    vm->log_prev_msg = 0;
+    vm->log_buffer = NULL;
+    vm->log_prev_msg = NULL;
     smutex_unlock( &vm->log_mutex );
+
+    //Compiler errors:
+    smem_free( vm->compiler_errors );
+    vm->compiler_errors = NULL;
 
     //Events:
     smutex_destroy( &vm->events_mutex );
@@ -228,9 +279,9 @@ int pix_vm_deinit( pix_vm* vm )
     smem_free( vm->vars );
     smem_free( vm->var_types );
     smem_free( vm->var_names );
-    vm->vars = 0;
-    vm->var_types = 0;
-    vm->var_names = 0;
+    vm->vars = NULL;
+    vm->var_types = NULL;
+    vm->var_names = NULL;
     vm->vars_num = 0;
     
     //Containers:
@@ -242,15 +293,23 @@ int pix_vm_deinit( pix_vm* vm )
 	    pix_vm_remove_container( i, vm );
 	}
 	smem_free( vm->c );
-	vm->c = 0;
+	vm->c = NULL;
     }
     smutex_destroy( &vm->c_mutex );
+    
+    //Timers:
+    smem_free( vm->timers );
+    vm->timers = NULL;
+
+    //Fonts:
+    smem_free( vm->fonts );
+    vm->fonts = NULL;
     
     //Text:
     smem_free( vm->text );
     smem_free( vm->text_lines );
-    vm->text = 0;
-    vm->text_lines = 0;
+    vm->text = NULL;
+    vm->text_lines = NULL;
     
     //Effector:
     smem_free( vm->effector_colors_r );
@@ -259,7 +318,7 @@ int pix_vm_deinit( pix_vm* vm )
     
     //Code:
     smem_free( vm->code );
-    vm->code = 0;
+    vm->code = NULL;
     vm->code_ptr = 0;
     vm->code_size = 0;
 
@@ -268,7 +327,7 @@ int pix_vm_deinit( pix_vm* vm )
     
     //Base path:
     smem_free( vm->base_path );
-    vm->base_path = 0;
+    vm->base_path = NULL;
 
     //Final log deinit:
     smutex_destroy( &vm->log_mutex );
@@ -290,7 +349,7 @@ int pix_vm_deinit( pix_vm* vm )
 
 void pix_vm_log( char* message, pix_vm* vm )
 {
-    if( vm->log_buffer == 0 )
+    if( !vm->log_buffer )
     {
 	slog( "%s", message );
 	return;
@@ -301,7 +360,13 @@ void pix_vm_log( char* message, pix_vm* vm )
 	size_t log_size = smem_get_size( vm->log_buffer );
 	size_t msg_size = smem_strlen( message );
 	if( log_size == 0 || msg_size == 0 ) break;
-	//if( message[ msg_size - 1 ] == 0xA && smem_strcmp( message, vm->log_prev_msg ) == 0 ) break; //the same message (with "new line" char)
+	if( message[ msg_size - 1 ] == 0xA && smem_strcmp( message, vm->log_prev_msg ) == 0 )
+	{
+	    //the same message (with "new line" char):
+	    if( vm->log_prev_msg_repeat_cnt >= 256 ) break;
+	    vm->log_prev_msg_repeat_cnt++;
+	}
+	else vm->log_prev_msg_repeat_cnt = 0;
 
 	slog( "%s", message );
 
@@ -309,7 +374,7 @@ void pix_vm_log( char* message, pix_vm* vm )
 	{
 	    char date[ 10 ];
 	    sprintf( date, "%02d:%02d:%02d ", stime_hours(), stime_minutes(), stime_seconds() );
-	    for( size_t i = 0; i < 9; i++ )
+	    for( int i = 0; i < 9; i++ )
 	    {
     		vm->log_buffer[ vm->log_ptr ] = date[ i ];
     		vm->log_ptr++;
@@ -710,11 +775,11 @@ int pix_vm_run(
     pix_vm* vm )
 {
     pix_vm_thread* th;
-    
+
     thread_num = pix_vm_create_active_thread( thread_num, vm );
     if( thread_num < 0 ) return thread_num;
     th = vm->th[ thread_num ];
-    
+
     if( mode == PIX_VM_CONTINUE )
     {
     }
@@ -771,11 +836,11 @@ int pix_vm_run(
     else
     {
 	//Execute code in the current thread (blocking mode):
-	size_t pc = th->pc;
-	size_t sp = th->sp;
-	size_t fp = th->fp;
+	PIX_PC pc = th->pc;
+	PIX_SP sp = th->sp;
+	PIX_SP fp = th->fp;
 	PIX_OPCODE* code = vm->code;
-	size_t code_size = vm->code_size;
+	PIX_PC code_size = vm->code_size;
 	PIX_VAL* vars = vm->vars;
 	int8_t* var_types = vm->var_types;
 	PIX_VAL* stack = th->stack;
@@ -783,7 +848,6 @@ int pix_vm_run(
 	PIX_OPCODE val;
 	PIX_INT val_i;
 	PIX_FLOAT val_f;
-	size_t sp2;
 	if( pc >= code_size )
 	{
 	    PIX_VM_LOG( "Error. Incorrect PC (program counter) value %u\n", (unsigned int)pc );
@@ -804,64 +868,83 @@ int pix_vm_run(
 		    break;
 
 		case OPCODE_HALT:
-		    th->active = 0;
+ 		    th->active = 0;
 		    break;
 
 		case OPCODE_PUSH_I:
-		    LOAD_INT( val_i );
-		    sp--;
-		    stack_types[ sp ] = 0;
-		    stack[ sp ].i = val_i;
+		    {
+			LOAD_INT( val_i );
+			sp--;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			stack_types[ sp2 ] = 0;
+			stack[ sp2 ].i = val_i;
+		    }
 		    break;
 		case OPCODE_PUSH_i:
-		    sp--;
-		    stack_types[ sp ] = 0;
-		    stack[ sp ].i = (signed)c >> PIX_OPCODE_BITS;
+		    {
+			sp--;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			stack_types[ sp2 ] = 0;
+			stack[ sp2 ].i = (signed)c >> PIX_OPCODE_BITS;
+		    }
 		    break;
                 case OPCODE_PUSH_F:
-		    LOAD_FLOAT( val_f );
-		    sp--;
-		    stack_types[ sp ] = 1;
-		    stack[ sp ].f = val_f;
+            	    {
+			LOAD_FLOAT( val_f );
+			sp--;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			stack_types[ sp2 ] = 1;
+			stack[ sp2 ].f = val_f;
+		    }
 		    break;
 		case OPCODE_PUSH_v:
-		    val = c >> PIX_OPCODE_BITS;
-		    sp--;
-		    stack_types[ sp ] = var_types[ val ];
-		    stack[ sp ] = vars[ val ];
+		    {
+			val = c >> PIX_OPCODE_BITS;
+			sp--;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			stack_types[ sp2 ] = var_types[ val ];
+			stack[ sp2 ] = vars[ val ];
+		    }
 		    break;
 
 		case OPCODE_GO:
 		    {
-			size_t addr;
-			if( stack_types[ sp ] == 0 )
-			    addr = (size_t)stack[ sp ].i;
+			PIX_ADDR addr;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			if( stack_types[ sp2 ] == 0 )
+			    addr = stack[ sp2 ].i;
 			else
-			    addr = (size_t)stack[ sp ].f;
+			    addr = stack[ sp2 ].f;
 			if( IS_ADDRESS_CORRECT( addr ) )
 			    pc = addr & PIX_INT_ADDRESS_MASK;
 			else
-			    PIX_VM_LOG( "Pixilang VM Error. %u: OPCODE_GO. Address %u is incorrect\n", (unsigned int)pc, (unsigned int)stack[ sp ].i );
+			    PIX_VM_LOG( "Pixilang VM Error. %u: OPCODE_GO. Address %u is incorrect\n", (unsigned int)pc, (unsigned int)stack[ sp2 ].i );
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_JMP_i:
 		    pc += ( (signed)c >> PIX_OPCODE_BITS ) - 1;
 		    break;
 		case OPCODE_JMP_IF_FALSE_i:
-		    if( ( stack_types[ sp ] == 0 && stack[ sp ].i == 0 ) ||
-		        ( stack_types[ sp ] == 1 && stack[ sp ].f == 0 ) )
 		    {
-			pc += ( (signed)c >> PIX_OPCODE_BITS ) - 1;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			if( ( stack_types[ sp2 ] == 0 && stack[ sp2 ].i == 0 ) ||
+		    	    ( stack_types[ sp2 ] == 1 && stack[ sp2 ].f == 0 ) )
+			{
+			    pc += ( (signed)c >> PIX_OPCODE_BITS ) - 1;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 
 		case OPCODE_SAVE_TO_VAR_v:
-		    val = c >> PIX_OPCODE_BITS;
-		    var_types[ val ] = stack_types[ sp ];
-		    vars[ val ] = stack[ sp ];
-		    sp++;
+		    {
+			val = c >> PIX_OPCODE_BITS;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			var_types[ val ] = stack_types[ sp2 ];
+			vars[ val ] = stack[ sp2 ];
+			sp++;
+		    }
 		    break;
 
 		case OPCODE_SAVE_TO_PROP_I:
@@ -870,12 +953,12 @@ int pix_vm_run(
 			PIX_CID cnum;
 			int prop_hash;
 			char* prop_name;
-	                cnum = (PIX_CID)stack[ sp + 1 ].i;
+	                cnum = (PIX_CID)stack[ PIX_CHECK_SP( sp + 1 ) ].i;
 	            	prop_name = pix_vm_get_variable_name( vm, val_i );
 	            	if( prop_name )
 	            	{
 	            	    prop_hash = (int)vm->vars[ val_i ].i;
-	            	    pix_vm_set_container_property( cnum, prop_name + 1, prop_hash, stack_types[ sp ], stack[ sp ], vm );
+	            	    pix_vm_set_container_property( cnum, prop_name + 1, prop_hash, stack_types[ PIX_CHECK_SP( sp ) ], stack[ PIX_CHECK_SP( sp ) ], vm );
 	            	}
 	                sp += 2;
 		    }
@@ -886,7 +969,8 @@ int pix_vm_run(
 			PIX_CID cnum;
 			size_t prop_var;
 			char* prop_name;
-	                cnum = (PIX_CID)stack[ sp ].i;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+	                cnum = (PIX_CID)stack[ sp2 ].i;
 	            	prop_name = pix_vm_get_variable_name( vm, val_i );
 	            	bool loaded = 0;
 	            	if( prop_name )
@@ -898,18 +982,18 @@ int pix_vm_run(
 	            		vm );
 	            	    if( sym )
 	            	    {
-	            		stack[ sp ] = sym->val;
+	            		stack[ sp2 ] = sym->val;
 	            		if( sym->type == SYMTYPE_NUM_F )
-	            		    stack_types[ sp ] = 1;
+	            		    stack_types[ sp2 ] = 1;
 	            		else
-	            		    stack_types[ sp ] = 0;
+	            		    stack_types[ sp2 ] = 0;
 	            		loaded = 1;
 	            	    }
 	            	}
 	            	if( loaded == 0 )
 	            	{
-	            	    stack[ sp ].i = 0;
-	            	    stack_types[ sp ] = 0;
+	            	    stack[ sp2 ].i = 0;
+	            	    stack_types[ sp2 ] = 0;
 			}
 		    }
 		    break;
@@ -917,31 +1001,32 @@ int pix_vm_run(
 		case OPCODE_SAVE_TO_MEM:
 		    {
 			PIX_CID cnum;
-	                cnum = (PIX_CID)stack[ sp + 2 ].i;
+	                cnum = (PIX_CID)stack[ PIX_CHECK_SP( sp + 2 ) ].i;
 			if( (unsigned)cnum < (unsigned)vm->c_num && vm->c[ cnum ] )
 			{
 			    pix_vm_container* cont = vm->c[ cnum ];
 	                    PIX_INT offset;
-			    if( stack_types[ sp + 1 ] == 0 )
-				offset = stack[ sp + 1 ].i;
+			    if( stack_types[ PIX_CHECK_SP( sp + 1 ) ] == 0 )
+				offset = stack[ PIX_CHECK_SP( sp + 1 ) ].i;
 			    else
-				offset = (PIX_INT)stack[ sp + 1 ].f;
+				offset = (PIX_INT)stack[ PIX_CHECK_SP( sp + 1 ) ].f;
 			    if( (unsigned)offset < cont->size )
 			    {
-				if( stack_types[ sp ] == 0 )
+				PIX_SP sp2 = PIX_CHECK_SP( sp );
+				if( stack_types[ sp2 ] == 0 )
 				{
 				    //Integer value:
 				    switch( cont->type )
 				    {
-					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp ].i; break;
-					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp ].i; break;
-					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp2 ].i; break;
+					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp2 ].i; break;
+					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp2 ].i; break;
 #ifdef PIX_INT64_ENABLED
-					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp2 ].i; break;
 #endif
-					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp2 ].i; break;
 #ifdef PIX_FLOAT64_ENABLED
-					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp2 ].i; break;
 #endif
 					default: break;
 				    }
@@ -951,15 +1036,15 @@ int pix_vm_run(
 				    //Floating point value:
 				    switch( cont->type )
 				    {
-					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp ].f; break;
-					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp ].f; break;
-					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp2 ].f; break;
+					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp2 ].f; break;
+					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp2 ].f; break;
 #ifdef PIX_INT64_ENABLED
-					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp2 ].f; break;
 #endif
-					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp2 ].f; break;
 #ifdef PIX_FLOAT64_ENABLED
-					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp2 ].f; break;
 #endif
 					default: break;
 				    }
@@ -972,35 +1057,36 @@ int pix_vm_run(
 		case OPCODE_SAVE_TO_SMEM_2D:
 		    {
 			PIX_CID cnum;
-	                cnum = (PIX_CID)stack[ sp + 3 ].i;
+	                cnum = (PIX_CID)stack[ PIX_CHECK_SP( sp + 3 ) ].i;
 			if( (unsigned)cnum < (unsigned)vm->c_num && vm->c[ cnum ] )
 			{
 			    pix_vm_container* cont = vm->c[ cnum ];
 	                    PIX_INT offset;
-			    if( stack_types[ sp + 2 ] == 0 )
-				offset = stack[ sp + 2 ].i;
+			    if( stack_types[ PIX_CHECK_SP( sp + 2 ) ] == 0 )
+				offset = stack[ PIX_CHECK_SP( sp + 2 ) ].i;
 			    else
-				offset = (PIX_INT)stack[ sp + 2 ].f;
-			    if( stack_types[ sp + 1 ] == 0 )
-				offset += stack[ sp + 1 ].i * cont->xsize;
+				offset = (PIX_INT)stack[ PIX_CHECK_SP( sp + 2 ) ].f;
+			    if( stack_types[ PIX_CHECK_SP( sp + 1 ) ] == 0 )
+				offset += stack[ PIX_CHECK_SP( sp + 1 ) ].i * cont->xsize;
 			    else
-				offset += (PIX_INT)stack[ sp + 1 ].f * cont->xsize;
+				offset += (PIX_INT)stack[ PIX_CHECK_SP( sp + 1 ) ].f * cont->xsize;
 			    if( (unsigned)offset < cont->size )
 			    {
-				if( stack_types[ sp ] == 0 )
+				PIX_SP sp2 = PIX_CHECK_SP( sp );
+				if( stack_types[ sp2 ] == 0 )
 				{
 				    //Integer value:
 				    switch( cont->type )
 				    {
-					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp ].i; break;
-					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp ].i; break;
-					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp2 ].i; break;
+					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp2 ].i; break;
+					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp2 ].i; break;
 #ifdef PIX_INT64_ENABLED
-					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64_t)stack[ sp2 ].i; break;
 #endif
-					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp2 ].i; break;
 #ifdef PIX_FLOAT64_ENABLED
-					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp ].i; break;
+					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp2 ].i; break;
 #endif
 					default: break;
 				    }
@@ -1010,15 +1096,15 @@ int pix_vm_run(
 				    //Floating point value:
 				    switch( cont->type )
 				    {
-					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp ].f; break;
-					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp ].f; break;
-					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_INT8: ((int8_t*)cont->data)[ offset ] = (int8_t)stack[ sp2 ].f; break;
+					case PIX_CONTAINER_TYPE_INT16: ((int16_t*)cont->data)[ offset ] = (int16_t)stack[ sp2 ].f; break;
+					case PIX_CONTAINER_TYPE_INT32: ((int32_t*)cont->data)[ offset ] = (int32_t)stack[ sp2 ].f; break;
 #ifdef PIX_INT64_ENABLED
-					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_INT64: ((int64_t*)cont->data)[ offset ] = (int64)stack[ sp2 ].f; break;
 #endif
-					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_FLOAT32: ((float*)cont->data)[ offset ] = (float)stack[ sp2 ].f; break;
 #ifdef PIX_FLOAT64_ENABLED
-					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp ].f; break;
+					case PIX_CONTAINER_TYPE_FLOAT64: ((double*)cont->data)[ offset ] = (double)stack[ sp2 ].f; break;
 #endif
 					default: break;
 				    }
@@ -1032,42 +1118,43 @@ int pix_vm_run(
 		    {
 			sp++;
 			PIX_CID cnum;
-			cnum = (PIX_CID)stack[ sp ].i;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			cnum = (PIX_CID)stack[ sp2 ].i;
 			if( (unsigned)cnum < (unsigned)vm->c_num && vm->c[ cnum ] )
 			{
 			    pix_vm_container* cont = vm->c[ cnum ];
 			    PIX_INT offset;
-			    if( stack_types[ sp - 1 ] == 0 )
-				offset = stack[ sp - 1 ].i;
+			    if( stack_types[ PIX_CHECK_SP( sp - 1 ) ] == 0 )
+				offset = stack[ PIX_CHECK_SP( sp - 1 ) ].i;
 			    else
-				offset = (PIX_INT)stack[ sp - 1 ].f;
+				offset = (PIX_INT)stack[ PIX_CHECK_SP( sp - 1 ) ].f;
 			    if( (unsigned)offset < cont->size )
 			    {
 				switch( cont->type )
 				{
-				    case PIX_CONTAINER_TYPE_INT8: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int8_t*)cont->data)[ offset ] ); break;
-				    case PIX_CONTAINER_TYPE_INT16: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int16_t*)cont->data)[ offset ] ); break;
-				    case PIX_CONTAINER_TYPE_INT32: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int32_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT8: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int8_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT16: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int16_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT32: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int32_t*)cont->data)[ offset ] ); break;
 #ifdef PIX_INT64_ENABLED
-				    case PIX_CONTAINER_TYPE_INT64: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int64_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT64: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int64_t*)cont->data)[ offset ] ); break;
 #endif
-				    case PIX_CONTAINER_TYPE_FLOAT32: stack_types[ sp ] = 1; stack[ sp ].f = (PIX_FLOAT)( ((float*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_FLOAT32: stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)( ((float*)cont->data)[ offset ] ); break;
 #ifdef PIX_FLOAT64_ENABLED
-				    case PIX_CONTAINER_TYPE_FLOAT64: stack_types[ sp ] = 1; stack[ sp ].f = (PIX_FLOAT)( ((double*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_FLOAT64: stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)( ((double*)cont->data)[ offset ] ); break;
 #endif
 				    default: break;
 				}
 			    }
 			    else
 			    {
-				stack_types[ sp ] = 0;
-				stack[ sp ].i = 0;
+				stack_types[ sp2 ] = 0;
+				stack[ sp2 ].i = 0;
 			    }
 			}
 			else
 			{
-			    stack_types[ sp ] = 0;
-			    stack[ sp ].i = 0;
+			    stack_types[ sp2 ] = 0;
+			    stack[ sp2 ].i = 0;
 			}
 	   	    }
 		    break;
@@ -1075,290 +1162,365 @@ int pix_vm_run(
 		    {
 			sp += 2;
 			PIX_CID cnum;
-			cnum = (PIX_CID)stack[ sp ].i;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			cnum = (PIX_CID)stack[ sp2 ].i;
 			if( (unsigned)cnum < (unsigned)vm->c_num && vm->c[ cnum ] )
 			{
 			    pix_vm_container* cont = vm->c[ cnum ];
 			    PIX_INT offset;
-			    if( stack_types[ sp - 1 ] == 0 )
-				offset = stack[ sp - 1 ].i;
+			    if( stack_types[ PIX_CHECK_SP( sp - 1 ) ] == 0 )
+				offset = stack[ PIX_CHECK_SP( sp - 1 ) ].i;
 			    else
-				offset = (PIX_INT)stack[ sp - 1 ].f;
-			    if( stack_types[ sp - 2 ] == 0 )
-				offset += stack[ sp - 2 ].i * cont->xsize;
+				offset = (PIX_INT)stack[ PIX_CHECK_SP( sp - 1 ) ].f;
+			    if( stack_types[ PIX_CHECK_SP( sp - 2 ) ] == 0 )
+				offset += stack[ PIX_CHECK_SP( sp - 2 ) ].i * cont->xsize;
 			    else
-				offset += (PIX_INT)stack[ sp - 2 ].f * cont->xsize;
+				offset += (PIX_INT)stack[ PIX_CHECK_SP( sp - 2 ) ].f * cont->xsize;
 			    if( (unsigned)offset < cont->size )
 			    {
 				switch( cont->type )
 				{
-				    case PIX_CONTAINER_TYPE_INT8: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int8_t*)cont->data)[ offset ] ); break;
-				    case PIX_CONTAINER_TYPE_INT16: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int16_t*)cont->data)[ offset ] ); break;
-				    case PIX_CONTAINER_TYPE_INT32: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int32_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT8: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int8_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT16: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int16_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT32: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int32_t*)cont->data)[ offset ] ); break;
 #ifdef PIX_INT64_ENABLED
-				    case PIX_CONTAINER_TYPE_INT64: stack_types[ sp ] = 0; stack[ sp ].i = (PIX_INT)( ((int64_t*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_INT64: stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)( ((int64_t*)cont->data)[ offset ] ); break;
 #endif
-				    case PIX_CONTAINER_TYPE_FLOAT32: stack_types[ sp ] = 1; stack[ sp ].f = (PIX_FLOAT)( ((float*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_FLOAT32: stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)( ((float*)cont->data)[ offset ] ); break;
 #ifdef PIX_FLOAT64_ENABLED
-				    case PIX_CONTAINER_TYPE_FLOAT64: stack_types[ sp ] = 1; stack[ sp ].f = (PIX_FLOAT)( ((double*)cont->data)[ offset ] ); break;
+				    case PIX_CONTAINER_TYPE_FLOAT64: stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)( ((double*)cont->data)[ offset ] ); break;
 #endif
 				    default: break;
 				}
 			    }
 			    else
 			    {
-				stack_types[ sp ] = 0;
-				stack[ sp ].i = 0;
+				stack_types[ sp2 ] = 0;
+				stack[ sp2 ].i = 0;
 			    }
 			}
 			else
 			{
-			    stack_types[ sp ] = 0;
-			    stack[ sp ].i = 0;
+			    stack_types[ sp2 ] = 0;
+			    stack[ sp2 ].i = 0;
 			}
 	   	    }
 		    break;
 
 		case OPCODE_SAVE_TO_STACKFRAME_i:
-		    val = (signed)c >> PIX_OPCODE_BITS;
-		    stack_types[ fp + (signed)val ] = stack_types[ sp ];
-		    stack[ fp + (signed)val ] = stack[ sp ];
-		    sp++;
+		    {
+			val = (signed)c >> PIX_OPCODE_BITS;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			PIX_SP fp2 = PIX_CHECK_SP( fp + (signed)val );
+			stack_types[ fp2 ] = stack_types[ sp2 ];
+			stack[ fp2 ] = stack[ sp2 ];
+			sp++;
+		    }
 		    break;
 		case OPCODE_LOAD_FROM_STACKFRAME_i:
-		    val = (signed)c >> PIX_OPCODE_BITS;
-		    sp--;
-		    stack_types[ sp ] = stack_types[ fp + (signed)val ];
-		    stack[ sp ] = stack[ fp + (signed)val ];
+		    {
+			val = (signed)c >> PIX_OPCODE_BITS;
+			sp--;
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			PIX_SP fp2 = PIX_CHECK_SP( fp + (signed)val );
+			stack_types[ sp2 ] = stack_types[ fp2 ];
+			stack[ sp2 ] = stack[ fp2 ];
+		    }
 		    break;
 
 		case OPCODE_SUB:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i -= stack[ sp ].i; break;
-			case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i - stack[ sp ].f; break;
-			case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f - (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack[ sp2 ].f -= stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i -= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i - stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f - (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack[ sp2 ].f -= stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_ADD:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i += stack[ sp ].i; break;
-			case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i + stack[ sp ].f; break;
-			case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f + (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack[ sp2 ].f += stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i += stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i + stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f + (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack[ sp2 ].f += stack[ sp3 ].f; break;
+			}
+		        sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_MUL:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i *= stack[ sp ].i; break;
-			case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i * stack[ sp ].f; break;
-			case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f * (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack[ sp2 ].f *= stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+		        {
+		    	    case 0: /*II*/ stack[ sp2 ].i *= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i * stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f * (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack[ sp2 ].f *= stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_IDIV:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i /= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i / (PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f / stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f / (PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i /= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i / (PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f / stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f / (PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_DIV:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i / (PIX_FLOAT)stack[ sp ].i; break;
-			case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i / stack[ sp ].f; break;
-			case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f / (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack[ sp2 ].f /= stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+		        {
+		    	    case 0: /*II*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i / (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack_types[ sp2 ] = 1; stack[ sp2 ].f = (PIX_FLOAT)stack[ sp2 ].i / stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack[ sp2 ].f = stack[ sp2 ].f / (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack[ sp2 ].f /= stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_MOD:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i %= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i % (PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f % stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f % (PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i %= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i % (PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f % stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f % (PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_AND:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i &= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i & (PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f & stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f & (PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i &= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i & (PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f & stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f & (PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_OR:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i |= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i | (PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f | stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f | (PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i |= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i | (PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f | stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f | (PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_XOR:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i ^= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i ^ (PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f ^ stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f ^ (PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i ^= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i ^ (PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f ^ stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f ^ (PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_ANDAND:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i && stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i && stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f && stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f && stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i && stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i && stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f && stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f && stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_OROR:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i || stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i || stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f || stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f || stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+		        {
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i || stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i || stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f || stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f || stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_EQ:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i == stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i == stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f == (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f == stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i == stack[ sp3 ].i; break;
+		    	    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i == stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f == (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f == stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_NEQ:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i != stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i != stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f != (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f != stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i != stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i != stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f != (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f != stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_LESS:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i < stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i < stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f < (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f < stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i < stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i < stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f < (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f < stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_LEQ:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i <= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i <= stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f <= (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f <= stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i <= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i <= stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f <= (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f <= stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_GREATER:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i > stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i > stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f > (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f > stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i > stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i > stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f > (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f > stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_GEQ:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i >= stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i >= stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f >= (PIX_FLOAT)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f >= stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i >= stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = (PIX_FLOAT)stack[ sp2 ].i >= stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f >= (PIX_FLOAT)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = stack[ sp2 ].f >= stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_LSHIFT:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i << (unsigned)stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i << (unsigned)(PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f << (unsigned)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f << (unsigned)(PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i << (unsigned)stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i << (unsigned)(PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f << (unsigned)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f << (unsigned)(PIX_INT)stack[ sp3 ].f; break;
+		        }
+			sp++;
 		    }
-		    sp++;
 		    break;
 		case OPCODE_RSHIFT:
-		    sp2 = sp + 1;
-		    switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp ] )
 		    {
-			case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i >> (unsigned)stack[ sp ].i; break;
-			case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i >> (unsigned)(PIX_INT)stack[ sp ].f; break;
-			case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f >> (unsigned)stack[ sp ].i; break;
-			case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f >> (unsigned)(PIX_INT)stack[ sp ].f; break;
+			PIX_SP sp2 = PIX_CHECK_SP( sp + 1 );
+			PIX_SP sp3 = PIX_CHECK_SP( sp );
+			switch( ( stack_types[ sp2 ] << 1 ) + stack_types[ sp3 ] )
+			{
+			    case 0: /*II*/ stack[ sp2 ].i = stack[ sp2 ].i >> (unsigned)stack[ sp3 ].i; break;
+			    case 1: /*IF*/ stack[ sp2 ].i = stack[ sp2 ].i >> (unsigned)(PIX_INT)stack[ sp3 ].f; break;
+			    case 2: /*FI*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f >> (unsigned)stack[ sp3 ].i; break;
+			    case 3: /*FF*/ stack_types[ sp2 ] = 0; stack[ sp2 ].i = (PIX_INT)stack[ sp2 ].f >> (unsigned)(PIX_INT)stack[ sp3 ].f; break;
+			}
+			sp++;
 		    }
-		    sp++;
 		    break;
 
 		case OPCODE_NEG:
-		    if( stack_types[ sp ] == 0 )
-			stack[ sp ].i = -stack[ sp ].i;
-		    else
-			stack[ sp ].f = -stack[ sp ].f;
+		    {
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			if( stack_types[ sp2 ] == 0 )
+			    stack[ sp2 ].i = -stack[ sp2 ].i;
+			else
+			    stack[ sp2 ].f = -stack[ sp2 ].f;
+		    }
 		    break;
 		case OPCODE_LOGICAL_NOT:
-		    if( stack_types[ sp ] == 0 )
-			stack[ sp ].i = !(stack[ sp ].i);
-		    else
-			stack[ sp ].f = !((PIX_INT)stack[ sp ].f);
+		    {
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			if( stack_types[ sp2 ] == 0 )
+			    stack[ sp2 ].i = !(stack[ sp2 ].i);
+			else
+			    stack[ sp2 ].f = !((PIX_INT)stack[ sp2 ].f);
+		    }
 		    break;
 		case OPCODE_BITWISE_NOT:
-		    if( stack_types[ sp ] == 0 )
-			stack[ sp ].i = ~stack[ sp ].i;
-		    else
-			stack[ sp ].f = ~(PIX_INT)stack[ sp ].f;
+		    {
+			PIX_SP sp2 = PIX_CHECK_SP( sp );
+			if( stack_types[ sp2 ] == 0 )
+			    stack[ sp2 ].i = ~stack[ sp2 ].i;
+			else
+			    stack[ sp2 ].f = ~(PIX_INT)stack[ sp2 ].f;
+		    }
 		    break;
 
 		case OPCODE_CALL_BUILTIN_FN:
@@ -1379,26 +1541,26 @@ int pix_vm_run(
 		    break;
 		case OPCODE_CALL_i:
 		    {
-			size_t addr;
-		        if( stack_types[ sp ] == 0 )
-			    addr = (size_t)stack[ sp ].i;
+			PIX_ADDR addr;
+		        if( stack_types[ PIX_CHECK_SP( sp ) ] == 0 )
+			    addr = stack[ PIX_CHECK_SP( sp ) ].i;
 		        else
-			    addr = (size_t)stack[ sp ].f;
+			    addr = stack[ PIX_CHECK_SP( sp ) ].f;
 			if( IS_ADDRESS_CORRECT( addr ) )
                         {
 		    	    //Set new PC:
 			    PIX_INT old_pc = (PIX_INT)pc;
 			    pc = addr & PIX_INT_ADDRESS_MASK;
 		    	    //Save number of parameters:
-		    	    stack_types[ sp ] = 0;
-		    	    stack[ sp ].i = (PIX_INT)( c >> PIX_OPCODE_BITS );
+		    	    stack_types[ PIX_CHECK_SP( sp ) ] = 0;
+		    	    stack[ PIX_CHECK_SP( sp ) ].i = (PIX_INT)( c >> PIX_OPCODE_BITS );
 			    //Save FP:
     			    sp--;
 		    	    //Dont touch the type of stack item, because user can't access this item directly
-		    	    stack[ sp ].i = (PIX_INT)fp;
+		    	    stack[ PIX_CHECK_SP( sp ) ].i = (PIX_INT)fp;
 			    //Save PC:
 			    sp--;
-		    	    stack[ sp ].i = old_pc;
+		    	    stack[ PIX_CHECK_SP( sp ) ].i = old_pc;
 		    	    //Set new FP:
 		    	    fp = sp + 2;
 		    	}
@@ -1407,8 +1569,8 @@ int pix_vm_run(
 		    	    int pars = (int)( c >> PIX_OPCODE_BITS );
 			    PIX_VM_LOG( "Pixilang VM Error. %u: call function i(%d). Address %u is incorrect\n", (unsigned int)pc, pars, (unsigned int)addr );
 			    sp += pars - 1;
-			    stack_types[ sp ] = 0;
-                            stack[ sp ].i = 0;
+			    stack_types[ PIX_CHECK_SP( sp ) ] = 0;
+                            stack[ PIX_CHECK_SP( sp ) ].i = 0;
 		    	}
 		    }
 		    break;
@@ -1418,44 +1580,44 @@ int pix_vm_run(
 		case OPCODE_RET_i:
 		    {
 			PIX_INT pars_num;
-			if( stack_types[ fp ] == 0 )
-			    pars_num = stack[ fp ].i;
+			if( stack_types[ PIX_CHECK_SP( fp ) ] == 0 )
+			    pars_num = stack[ PIX_CHECK_SP( fp ) ].i;
 			else
-			    pars_num = (PIX_INT)stack[ fp ].f;
+			    pars_num = (PIX_INT)stack[ PIX_CHECK_SP( fp ) ].f;
 			sp = fp + pars_num;
-			stack_types[ fp + pars_num ] = 0;
-			stack[ fp + pars_num ].i = (PIX_INT)( (signed)c >> PIX_OPCODE_BITS );
-			pc = stack[ fp - 2 ].i;
-			fp = stack[ fp - 1 ].i;
+			stack_types[ PIX_CHECK_SP( fp + pars_num ) ] = 0;
+			stack[ PIX_CHECK_SP( fp + pars_num ) ].i = (PIX_INT)( (signed)c >> PIX_OPCODE_BITS );
+			pc = stack[ PIX_CHECK_SP( fp - 2 ) ].i;
+			fp = stack[ PIX_CHECK_SP( fp - 1 ) ].i;
 		    }
 		    break;
 		case OPCODE_RET_I:
 		    {
 			LOAD_INT( val_i );
 			PIX_INT pars_num;
-			if( stack_types[ fp ] == 0 )
-			    pars_num = stack[ fp ].i;
+			if( stack_types[ PIX_CHECK_SP( fp ) ] == 0 )
+			    pars_num = stack[ PIX_CHECK_SP( fp ) ].i;
 			else
-			    pars_num = (PIX_INT)stack[ fp ].f;
+			    pars_num = (PIX_INT)stack[ PIX_CHECK_SP( fp ) ].f;
 			sp = fp + pars_num;
-			stack_types[ fp + pars_num ] = 0;
-			stack[ fp + pars_num ].i = val_i;
-			pc = stack[ fp - 2 ].i;
-			fp = stack[ fp - 1 ].i;
+			stack_types[ PIX_CHECK_SP( fp + pars_num ) ] = 0;
+			stack[ PIX_CHECK_SP( fp + pars_num ) ].i = val_i;
+			pc = stack[ PIX_CHECK_SP( fp - 2 ) ].i;
+			fp = stack[ PIX_CHECK_SP( fp - 1 ) ].i;
 		    }
 		    break;
 		case OPCODE_RET:
 		    {
 			PIX_INT pars_num;
-			if( stack_types[ fp ] == 0 )
-			    pars_num = stack[ fp ].i;
+			if( stack_types[ PIX_CHECK_SP( fp ) ] == 0 )
+			    pars_num = stack[ PIX_CHECK_SP( fp ) ].i;
 			else
-			    pars_num = (PIX_INT)stack[ fp ].f;
-			stack_types[ fp + pars_num ] = stack_types[ sp ];
-			stack[ fp + pars_num ] = stack[ sp ];
+			    pars_num = (PIX_INT)stack[ PIX_CHECK_SP( fp ) ].f;
+			stack_types[ PIX_CHECK_SP( fp + pars_num ) ] = stack_types[ PIX_CHECK_SP( sp ) ];
+			stack[ PIX_CHECK_SP( fp + pars_num ) ] = stack[ PIX_CHECK_SP( sp ) ];
 			sp = fp + pars_num;
-			pc = stack[ fp - 2 ].i;
-			fp = stack[ fp - 1 ].i;
+			pc = stack[ PIX_CHECK_SP( fp - 2 ) ].i;
+			fp = stack[ PIX_CHECK_SP( fp - 1 ) ].i;
 		    }
 		    break;
 
@@ -1479,21 +1641,21 @@ int pix_vm_run(
 int pix_vm_save_code( const char* name, pix_vm* vm )
 {
     int rv = 0;
-    
+
     sfs_file f = sfs_open( name, "wb" );
     if( f )
     {
 	const char* signature = "PIXICODE";
-	uint version = PIXILANG_VERSION;
+	uint32_t version = PIXILANG_VERSION;
 	sfs_write( (void*)signature, 1, 8, f );
 	sfs_write( &version, 1, 4, f );
 	for( int i = 0; i < 4; i++ ) sfs_putc( 0, f );
-	
+
 	sfs_write( &vm->code_size, 1, 4, f );
 	sfs_write( vm->code, sizeof( PIX_OPCODE ), vm->code_size, f );
 	sfs_write( &vm->code_ptr, 1, 4, f );
 	sfs_write( &vm->halt_addr, 1, 4, f );
-	
+
 	sfs_write( &vm->vars_num, 1, 4, f );
 	sfs_write( vm->var_types, 1, vm->vars_num, f );
 	for( int i = 0; i < (int)vm->vars_num; i++ )
@@ -1520,14 +1682,23 @@ int pix_vm_save_code( const char* name, pix_vm* vm )
 	
 	sfs_write( &vm->screen, 1, 4, f );
 	
-	for( int i = 0; i < PIX_VM_FONTS; i++ )
+	for( int i = 0; i < vm->fonts_num; i++ )
 	{
 	    pix_vm_font* font = &vm->fonts[ i ];
 	    sfs_write( &font->font, 1, sizeof( PIX_CID ), f );
-	    sfs_write( &font->xchars, 1, 4, f );
-	    sfs_write( &font->ychars, 1, 4, f );
 	    sfs_write( &font->first, 1, 4, f );
 	    sfs_write( &font->last, 1, 4, f );
+	    uint32_t v;
+	    v = font->char_xsize; sfs_write( &v, 1, 4, f );
+	    v = font->char_ysize; sfs_write( &v, 1, 4, f );
+	    v = font->char_xsize2; sfs_write( &v, 1, 4, f );
+	    v = font->char_ysize2; sfs_write( &v, 1, 4, f );
+	    v = font->grid_xoffset; sfs_write( &v, 1, 4, f );
+	    v = font->grid_yoffset; sfs_write( &v, 1, 4, f );
+	    v = font->grid_cell_xsize; sfs_write( &v, 1, 4, f );
+	    v = font->grid_cell_ysize; sfs_write( &v, 1, 4, f );
+	    v = font->xchars; sfs_write( &v, 1, 4, f );
+	    v = font->ychars; sfs_write( &v, 1, 4, f );
 	}
 	
 	sfs_write( &vm->event, 1, sizeof( PIX_CID ), f );
@@ -1725,13 +1896,44 @@ int pix_vm_load_code( const char* name, char* base_path, pix_vm* vm )
     {
 	char sign[ 16 ];
 	sfs_read( sign, 1, 16, f );
-	
+	if( smem_cmp( sign, "PIXICODE", 8 ) )
+	{
+	    PIX_VM_LOG( "pix_vm_load_code(): wrong signature!\n" );
+	    rv = 1;
+	    goto load_code_end;
+	}
+	uint32_t file_version = 0;
+	memmove( &file_version, &sign[ 8 ], 4 );
+	uint32_t version = PIXILANG_VERSION;
+	if( file_version != version )
+	{
+	    bool version_err = false;
+	    if( ( version & 0xFFFFFF00 ) != ( file_version & 0xFFFFFF00 ) ) //X.Y.Z.* != X.Y.Z.* (ex: 3.8.3 != 3.8.2)
+	    {
+		version_err = true;
+	    }
+	    if( version_err )
+	    {
+		PIX_VM_LOG( "pix_vm_load_code(): can't load pixicode v%d.%d.%d.%d in Pixilang v%d.%d.%d.%d\n", 
+		    ( file_version >> 24 ) & 255,
+		    ( file_version >> 16 ) & 255,
+		    ( file_version >> 8 ) & 255,
+		    ( file_version >> 0 ) & 255,
+		    ( version >> 24 ) & 255,
+		    ( version >> 16 ) & 255,
+		    ( version >> 8 ) & 255,
+		    ( version >> 0 ) & 255 );
+		rv = 2;
+		goto load_code_end;
+	    }
+	}
+
 	sfs_read( &vm->code_size, 1, 4, f );
 	vm->code = (PIX_OPCODE*)smem_new( sizeof( PIX_OPCODE ) * vm->code_size );
 	sfs_read( vm->code, sizeof( PIX_OPCODE ), vm->code_size, f );
 	sfs_read( &vm->code_ptr, 1, 4, f );
 	sfs_read( &vm->halt_addr, 1, 4, f );
-	
+
 	sfs_read( &vm->vars_num, 1, 4, f );
 	pix_vm_resize_variables( vm );
 	sfs_read( vm->var_types, 1, vm->vars_num, f );
@@ -1764,14 +1966,23 @@ int pix_vm_load_code( const char* name, char* base_path, pix_vm* vm )
 	
 	sfs_read( &vm->screen, 1, 4, f );
 	
-	for( int i = 0; i < PIX_VM_FONTS; i++ )
+	for( int i = 0; i < vm->fonts_num; i++ )
 	{
 	    pix_vm_font* font = &vm->fonts[ i ];
 	    sfs_read( &font->font, 1, sizeof( PIX_CID ), f );
-	    sfs_read( &font->xchars, 1, 4, f );
-	    sfs_read( &font->ychars, 1, 4, f );
 	    sfs_read( &font->first, 1, 4, f );
 	    sfs_read( &font->last, 1, 4, f );
+	    uint32_t v;
+	    sfs_read( &v, 1, 4, f ); font->char_xsize = v;
+	    sfs_read( &v, 1, 4, f ); font->char_ysize = v;
+	    sfs_read( &v, 1, 4, f ); font->char_xsize2 = v;
+	    sfs_read( &v, 1, 4, f ); font->char_ysize2 = v;
+	    sfs_read( &v, 1, 4, f ); font->grid_xoffset = v;
+	    sfs_read( &v, 1, 4, f ); font->grid_yoffset = v;
+	    sfs_read( &v, 1, 4, f ); font->grid_cell_xsize = v;
+	    sfs_read( &v, 1, 4, f ); font->grid_cell_ysize = v;
+	    sfs_read( &v, 1, 4, f ); font->xchars = v;
+	    sfs_read( &v, 1, 4, f ); font->ychars = v;
 	}
 	
 	sfs_read( &vm->event, 1, sizeof( PIX_CID ), f );
@@ -1782,7 +1993,7 @@ int pix_vm_load_code( const char* name, char* base_path, pix_vm* vm )
 	sfs_read( &vm->os_name, 1, sizeof( PIX_CID ), f );
 	sfs_read( &vm->arch_name, 1, sizeof( PIX_CID ), f );
 	sfs_read( &vm->lang_name, 1, sizeof( PIX_CID ), f );
-	
+
 	while( 1 )
 	{
 	    PIX_CID cnum;
@@ -1813,27 +2024,29 @@ int pix_vm_load_code( const char* name, char* base_path, pix_vm* vm )
 		pix_vm_set_container_alpha( cnum, alpha, vm );
 	    }
 	}
-	
-	sfs_close( f );
-	
+
 	//Set base VM path:
 	smem_free( vm->base_path );
 	vm->base_path = (char*)smem_new( smem_strlen( base_path ) + 1 );
 	vm->base_path[ 0 ] = 0;
 	smem_strcat_resize( vm->base_path, base_path );
-	
+
         //Set system info containers:
 	pix_vm_set_systeminfo_containers( vm );
-	
+
 	//Set Pixilang VM info (features/modes):
 	pix_vm_set_pixiinfo( vm );
 
     }
     else
     {
-	PIX_VM_LOG( "Can't open %s for reading.\n", name );
-	rv = 1;
+	PIX_VM_LOG( "pix_vm_load_code(): can't open %s for reading.\n", name );
+	rv = 3;
     }
+
+load_code_end:
+
+    sfs_close( f );
 
     return rv;
 }

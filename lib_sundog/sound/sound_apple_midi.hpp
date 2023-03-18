@@ -46,11 +46,20 @@ struct device_midi_client
     uint32_t                    notify_cmds_r;
 };
 
+enum endpoint_type_enum
+{
+    ENDPOINT_VIRTUAL_SRC, //MIDI source in the client, created with MIDISourceCreate() for the "public port"
+    ENDPOINT_VIRTUAL_DEST, //MIDI destination in the client, created with MIDIDestinationCreate() for the "public port"
+    ENDPOINT_SRC, //MIDI source in the system
+    ENDPOINT_DEST, //MIDI destination in the system
+};
+
 struct device_midi_port
 {
     sundog_midi_client*		c;
     MIDIPortRef 		port;
     MIDIEndpointRef 		endpoint; //Source or destination
+    endpoint_type_enum		endpoint_type;
 #ifdef AUDIOBUS_MIDI_OUT
     int				audiobus_out; //1,2,3...; 0 - not connected
 #endif
@@ -120,7 +129,7 @@ void midi_in_virtualdest_callback( const MIDIPacketList* packetList, void* readP
 #endif
 
     device_midi_port* port = (device_midi_port*)readProcRefCon;
-    if( port == 0 ) return;
+    if( !port ) return;
 
     midi_port_receive( port, packetList );
 }
@@ -386,12 +395,12 @@ int device_midi_client_get_devices( sundog_midi_client* c, char*** devices, uint
 
     int rv = 0;
     device_midi_client* d = (device_midi_client*)c->device_specific;
-    if( d == 0 ) return 0;
-    
+    if( !d ) return 0;
+
     HANDLE_THREAD_EVENTS; //handle MIDI notifications to get the correct list of sources/destinations; required if you are not in the main thread;
-    
+
     *devices = NULL;
-    
+
     CFStringRef name;
     const uint name_size = 2048;
     char* name_utf8 = (char*)smem_new( name_size );
@@ -407,7 +416,7 @@ int device_midi_client_get_devices( sundog_midi_client* c, char*** devices, uint
 		if( is_private( source ) ) continue;
 		name = 0;
 		name = device_midi_get_endpoint_name( source );
-		if( name == 0 ) continue;
+		if( !name ) continue;
 		CFStringGetCString( name, name_utf8, name_size, kCFStringEncodingUTF8 );
 		CFRelease( name );
 		smem_objlist_add( (void***)devices, name_utf8, true, rv );
@@ -425,7 +434,7 @@ int device_midi_client_get_devices( sundog_midi_client* c, char*** devices, uint
 		if( is_private( dest ) ) continue;
 		name = 0;
 		name = device_midi_get_endpoint_name( dest );
-		if( name == 0 ) continue;
+		if( !name ) continue;
 		CFStringGetCString( name, name_utf8, name_size, kCFStringEncodingUTF8 );
 		CFRelease( name );
 		smem_objlist_add( (void***)devices, name_utf8, true, rv );
@@ -441,7 +450,7 @@ int device_midi_client_get_devices( sundog_midi_client* c, char*** devices, uint
 #endif
     }
     smem_free( name_utf8 );
-        
+
     return rv;
 }
 
@@ -464,16 +473,18 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
     if( !d ) return -1;
 
     sundog_midi_port* sd_port = c->ports[ pnum ];
-    sd_port->device_specific = smem_new( sizeof( device_midi_port ) );
+    sd_port->device_specific = smem_znew( sizeof( device_midi_port ) );
     device_midi_port* port = (device_midi_port*)sd_port->device_specific;
-    smem_zero( port );
     port->c = c;
-    
+#ifndef NOMIDI
+    init_common_midiport_vars( port );
+#endif
+
     HANDLE_THREAD_EVENTS;
-    
+
     if( flags & MIDI_PORT_READ )
 	status = MIDIInputPortCreate( d->client, CFStringCreateWithCString( NULL, port_name, kCFStringEncodingUTF8 ), midi_in_callback, c, &port->port );
-    else 
+    else
 	status = MIDIOutputPortCreate( d->client, CFStringCreateWithCString( NULL, port_name, kCFStringEncodingUTF8 ), &port->port );
     if( status )
     {
@@ -503,14 +514,15 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
                 slog( "Error trying to create MIDI Virtual Input: %d\n", status );
 		port->endpoint = 0;
             }
-            else 
+            else
             {
                 MIDIObjectSetIntegerProperty( dest, kMIDIPropertyUniqueID, idd );
 		rv = 0;
 		port->endpoint = dest;
+		port->endpoint_type = ENDPOINT_VIRTUAL_DEST;
             }
         }
-        else 
+        else
         {
             sprintf( ts, "%s", port_name );
             int idd = 'SDOu';
@@ -521,11 +533,12 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
             {
                 slog( "Error trying to create MIDI Virtual Output: %d\n", status );
             }
-            else 
+            else
             {
                 MIDIObjectSetIntegerProperty( source, kMIDIPropertyUniqueID, idd );
                 rv = 0;
                 port->endpoint = source;
+		port->endpoint_type = ENDPOINT_VIRTUAL_SRC;
             }
         }
         smem_free( ts );
@@ -546,7 +559,7 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
 		{
 		    name = 0;
 		    name = device_midi_get_endpoint_name( source );
-		    if( name == 0 ) continue;
+		    if( !name ) continue;
 		    CFStringGetCString( name, name_utf8, 512, kCFStringEncodingUTF8 );
 		    CFRelease( name );
 		    if( smem_strcmp( name_utf8, dev_name ) == 0 )
@@ -559,12 +572,13 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
 			}
 			rv = 0;
 			port->endpoint = source;
+			port->endpoint_type = ENDPOINT_SRC;
 			break;
 		    }
 		}
 	    }
 	}
-	else 
+	else
 	{
 	    for( size_t j = 0; j < dests; j++ )
 	    {
@@ -573,13 +587,14 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
 		{
 		    name = 0;
 		    name = device_midi_get_endpoint_name( dest );
-		    if( name == 0 ) continue;
+		    if( !name ) continue;
 		    CFStringGetCString( name, name_utf8, 512, kCFStringEncodingUTF8 );
 		    CFRelease( name );
 		    if( smem_strcmp( name_utf8, dev_name ) == 0 )
 		    {
 			rv = 0;
 			port->endpoint = dest;
+			port->endpoint_type = ENDPOINT_DEST;
 			break;
 		    }
 		}
@@ -600,15 +615,15 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
 #endif
 	}
     }
-    
+
 open_end:
-    
+
     if( rv != 0 )
     {
 	//Open error:
 	smem_free( port );
     }
-    
+
     return rv;
 }
 
@@ -626,11 +641,11 @@ int device_midi_client_close_port( sundog_midi_client* c, int pnum )
     //CoreMIDI:
 
     device_midi_client* d = (device_midi_client*)c->device_specific;
-    if( d == 0 ) return -1;
+    if( !d ) return -1;
     
     sundog_midi_port* sd_port = c->ports[ pnum ];
     device_midi_port* port = (device_midi_port*)sd_port->device_specific;
-    if( port == 0 ) return 0;
+    if( !port ) return 0;
 
     MIDIPortDispose( port->port );
     
@@ -709,18 +724,18 @@ int device_midi_client_send_event( sundog_midi_client* c, int pnum, sundog_midi_
     //CoreMIDI:
 
     device_midi_client* d = (device_midi_client*)c->device_specific;
-    if( d == 0 ) return -1;
-    
+    if( !d ) return -1;
+
     sundog_midi_port* sd_port = c->ports[ pnum ];
     device_midi_port* port = (device_midi_port*)sd_port->device_specific;
-    if( port == 0 ) return 0;
+    if( !port ) return 0;
 
     c->last_midi_out_activity = stime_ticks_hires();
 
 #ifdef AUDIOBUS_MIDI_OUT
     if( port->audiobus_out <= 0 && g_ab_disable_coremidi_out ) return 0;
 #endif
-    
+
     MIDIPacketList list;
     list.numPackets = 1;
     list.packet[ 0 ].timeStamp = (MIDITimeStamp)convert_sundog_ticks_to_mach_absolute_time( evt->t, 1 );
@@ -728,7 +743,7 @@ int device_midi_client_send_event( sundog_midi_client* c, int pnum, sundog_midi_
     size_t data_size = evt->size;
     size_t sent = 0;
     while( sent < data_size ) 
-    { 
+    {
 	size_t size = data_size - sent;
 	if( size > 256 ) size = 256;
 	list.packet[ 0 ].length = size;
@@ -742,10 +757,13 @@ int device_midi_client_send_event( sundog_midi_client* c, int pnum, sundog_midi_
 	else
 #endif
 	{
-	    MIDISend( port->port, port->endpoint, &list );
+	    if( port->endpoint_type = ENDPOINT_VIRTUAL_SRC )
+		MIDIReceived( port->endpoint, &list );
+	    else
+		MIDISend( port->port, port->endpoint, &list );
 	}
     }
-    
+
     return 0;
 }
 

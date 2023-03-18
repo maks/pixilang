@@ -11,7 +11,6 @@
 #define NOVCAP
 #define PS_STYPE_FLOAT32
 #define SUNVOX_LIB
-#define SUNVOX_LIB_WITH_SAVE
 
 #ifdef __cplusplus
 #import "sundog.h"

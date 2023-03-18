@@ -1,7 +1,7 @@
 include "../show_log.pixi"
 
 //Container with some string:
-//(it will be created at compile time, don't remove it manually)
+//(it will be created at compile time; don't remove it manually)
 str = "Hello Pixi! ####"
 
 logf( "%s\n", str ) //print our string

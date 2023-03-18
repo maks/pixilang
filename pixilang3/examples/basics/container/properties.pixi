@@ -9,29 +9,30 @@ b = new( 4, 1, INT )
 a.prop1 = 32
 logf( "a.prop1 = %d\n", a.prop1 )
 
+set_prop( a, "prop1", 33 ) //same as a.prop1 = 33
+v = get_prop( a, "prop1" ) //same as v = a.prop1
+logf( "a.prop1 = %d\n", v )
+
 remove_prop( a, "prop1" )
-logf( "a.prop1 = %d\n", get_prop( a, "prop1", -1 ) )
+logf( "a.prop1 = %d (after remove)\n", get_prop( a, "prop1", -1 ) )
 
 a.prop2 = b
 b.size = 100
-logf( "a.prop2 = %d\n", a.prop2 )
-logf( "b.size = %d\n", b.size )
-logf( "a.prop2.size = %d\n", a.prop2.size )
+logf( "a.prop2 = %d (container ID)\n", a.prop2 )
+logf( "b.size = a.prop2.size = %d\n", a.prop2.size )
 
-a[ 2 ] = b
-logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
+a.prop3 = YELLOW
+a.prop4 = 12.234
+a.link_to_text = "Pixi!"
 
-a[ 2 ].size = 105
-logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
-
-a[ 2 ].size + a.prop1
-logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
-
-set_prop( a[ 2 ], "size", 111 )
-logf( "a[ 2 ].size = %d\n", a[ 2 ].size )
-
-a[ 2 ].yet_another_container = new( 4, 4, INT )
-a[ 2 ].yet_another_container[ 1 ] = 44
-logf( "a[ 2 ].yet_another_container[ 1 ] = %d\n", a[ 2 ].yet_another_container[ 1 ] )
+//Get the list of the container properties:
+proplist = get_proplist( a )
+num = get_size( proplist )
+logf( "Number of properties in the container a: %d\n", num )
+for( i = 0; i < num; i + 1 )
+{
+    logf( "  %d: %s\n", i, proplist[ i ] )
+}
+remove_proplist( proplist )
 
 show_log()

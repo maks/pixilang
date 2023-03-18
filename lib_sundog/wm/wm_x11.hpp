@@ -1,13 +1,13 @@
 /*
     wm_x11.h - platform-dependent module : X11 (X Window System) + OpenGL
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
 #pragma once
 
-#include <sched.h>	//for sched_yield()
+#include <sched.h>	//sched_yield()
 
 #ifdef OPENGL
     #ifdef OPENGLES
@@ -27,6 +27,7 @@ int device_start( const char* name, int xsize, int ysize, window_manager* wm )
 {
     int retval = 0;
 
+    wm->main_loop_thread = pthread_self();
     XInitThreads();
 
     //Open a connection to the X server:
@@ -352,6 +353,16 @@ int device_start( const char* name, int xsize, int ysize, window_manager* wm )
 #endif
 #endif //OPENGL
 
+    XClassHint* hint = XAllocClassHint();
+    char* app_name = smem_strdup( g_app_name_short );
+    make_string_lowercase( app_name, strlen( app_name ) + 1, app_name );
+    hint->res_name = app_name; //application name
+    hint->res_class = app_name; //application class
+    XSetClassHint( wm->dpy, wm->win, hint );
+    XFree( hint );
+    smem_free( app_name );
+    //Type "xprop WM_CLASS" in a terminal, the cursor will change, then click on the window of the app and xprop will return the wm class of the app...
+
     if( wm->flags & WIN_INIT_FLAG_FULLSCREEN )
     {
 	XWindowAttributes xwa;
@@ -466,7 +477,6 @@ void device_end( window_manager* wm )
 void device_event_handler( window_manager* wm )
 {
     XEvent evt;
-    KeySym sym;
     int handled = 0;
     int pend = XPending( wm->dpy );
     for( int e = 0; e < pend; e++ )
@@ -623,12 +633,45 @@ void device_event_handler( window_manager* wm )
 	    case KeyPress:
 	    case KeyRelease:
 	    {
-		//sym = XKeycodeToKeysym( wm->dpy, evt.xkey.keycode, 0 );
-		sym = XkbKeycodeToKeysym( wm->dpy, evt.xkey.keycode, 0, 0 ); //event.xkey.state & ShiftMask ? 1 : 0);
+		KeySym sym = XkbKeycodeToKeysym( wm->dpy, evt.xkey.keycode, 0, 0 ); //event.xkey.state & ShiftMask ? 1 : 0);
+		if( sym >= XK_KP_Space && sym <= XK_KP_9 )
+		{
+		    //Keypad:
+		    if( evt.xkey.state & Mod2Mask )
+		    {
+			//Numlock:
+			KeySym sym2 = XkbKeycodeToKeysym( wm->dpy, evt.xkey.keycode, 0, 1 );
+			if( sym2 != NoSymbol ) sym = sym2;
+		    }
+		}
 		int key = 0;
 		if( sym == NoSymbol || sym == 0 ) break;
 		switch( sym )
 		{
+		    case XK_Num_Lock: break;
+
+		    case XK_KP_Left: key = KEY_LEFT; break;
+		    case XK_KP_Right: key = KEY_RIGHT; break;
+		    case XK_KP_Up: key = KEY_UP; break;
+		    case XK_KP_Down: key = KEY_DOWN; break;
+		    case XK_KP_Home: key = KEY_HOME; break;
+		    case XK_KP_End: key = KEY_END; break;
+		    case XK_KP_Page_Up: key = KEY_PAGEUP; break;
+		    case XK_KP_Page_Down: key = KEY_PAGEDOWN; break;
+		    case XK_KP_Delete: key = KEY_DELETE; break;
+		    case XK_KP_Insert: key = KEY_INSERT; break;
+		    case XK_KP_Enter: key = KEY_ENTER; break;
+		    case XK_KP_0: key = '0'; break;
+		    case XK_KP_1: key = '1'; break;
+		    case XK_KP_2: key = '2'; break;
+		    case XK_KP_3: key = '3'; break;
+		    case XK_KP_4: key = '4'; break;
+		    case XK_KP_5: key = '5'; break;
+		    case XK_KP_6: key = '6'; break;
+		    case XK_KP_7: key = '7'; break;
+		    case XK_KP_8: key = '8'; break;
+		    case XK_KP_9: key = '9'; break;
+
 		    case XK_F1: key = KEY_F1; break;
 		    case XK_F2: key = KEY_F2; break;
 		    case XK_F3: key = KEY_F3; break;
@@ -686,7 +729,7 @@ void device_event_handler( window_manager* wm )
                         else
                             wm->mods &= ~EVT_FLAG_MODE;
 			break;
-		    default: 
+		    default:
 			if( sym >= 0x20 && sym <= 0x7E ) 
 			    key = sym;
 			else
@@ -868,7 +911,11 @@ void device_screen_unlock( WINDOWPTR win, window_manager* wm )
 void device_change_name( const char* name, window_manager* wm )
 {
     if( !name ) return;
-    XStoreName( wm->dpy, wm->win, name );
+    const char* atom_names[] = { "_NET_WM_NAME", "UTF8_STRING" };
+    Atom atoms[ 2 ];
+    XInternAtoms( wm->dpy, (char**)atom_names, 2, false, atoms );
+    //XStoreName( wm->dpy, wm->win, name ); //can't work with UTF-8
+    XChangeProperty( wm->dpy, wm->win, atoms[ 0 ], atoms[ 1 ], 8, PropModeReplace, (const unsigned char*)name, strlen( name ) );
 }
 
 #ifndef OPENGL
@@ -911,7 +958,7 @@ void device_draw_image(
     int dest_x, int dest_y, 
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
     int src_xs = img->xsize;

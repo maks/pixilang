@@ -33,6 +33,7 @@ void android_sundog_event_handler( window_manager* wm );
 int android_sundog_check_for_permissions( sundog_engine* s, int p ); //p: 1 - write ext.storage; 2 - record_audio; 4 - camera;
 char* android_sundog_get_external_files_dir( int n ); //n: 0 - primary; 1 - secondary; retval: string allocated with malloc()
 int android_sundog_copy_resources( void );
+char* android_sundog_get_host_ips( sundog_engine* s, int mode );
 void android_sundog_open_url( sundog_engine* s, const char* url_text );
 void android_sundog_send_file_to_gallery( sundog_engine* s, const char* path );
 void android_sundog_clipboard_copy( const char* txt );

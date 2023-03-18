@@ -1,7 +1,7 @@
 /*
     wm_wbd.cpp - WBD (Window Buffer Draw)
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -105,7 +105,7 @@ void wbd_draw( window_manager* wm )
     else
     {
 	WINDOWPTR win = wm->cur_window;
-	sundog_image img;
+	sdwm_image img;
 	img.xsize = wm->screen_xsize;
 	img.ysize = wm->screen_ysize;
 	img.flags = IMAGE_NATIVE_RGB | IMAGE_STATIC_SOURCE;
@@ -175,7 +175,7 @@ void draw_points( int16_t* coord2d, COLOR color, uint count, window_manager* wm 
 		    new_points[ new_count * 6 + 2 ] = x + 1;
 		    new_points[ new_count * 6 + 3 ] = y;
 		    new_points[ new_count * 6 + 4 ] = x;
-		    new_points[ new_count * 6 + 5 ] = y + 1;
+		    new_points[ new_count * 6 + 5 ] = y + 2;
 		}
 		else
 		{
@@ -183,7 +183,7 @@ void draw_points( int16_t* coord2d, COLOR color, uint count, window_manager* wm 
 		    new_points[ new_count * 2 + 1 ] = y;
 		}
 		new_count++;
-	    }        	
+	    }
 	}
 	if( new_count )
 	{
@@ -514,8 +514,8 @@ void draw_hgradient( int x, int y, int xsize, int ysize, COLOR c, int t1, int t2
     if( wm->cur_opacity == 0 ) return;
     if( wm->cur_window_invisible ) return;
 
-    sundog_polygon p;
-    sundog_vertex v[ 4 ];
+    sdwm_polygon p;
+    sdwm_vertex v[ 4 ];
     v[ 0 ].x = x;
     v[ 0 ].y = y;
     v[ 0 ].c = c;
@@ -544,8 +544,8 @@ void draw_vgradient( int x, int y, int xsize, int ysize, COLOR c, int t1, int t2
     if( WBD_OPENGL )
     {
 #ifdef OPENGL
-	sundog_polygon p;
-	sundog_vertex v[ 4 ];
+	sdwm_polygon p;
+	sdwm_vertex v[ 4 ];
 	v[ 0 ].x = x;
 	v[ 0 ].y = y;
 	v[ 0 ].c = c;
@@ -653,14 +653,14 @@ void draw_corners( int x, int y, int xsize, int ysize, int size, int len, COLOR 
     draw_frect( x + xsize - len, y + ysize, size + len, size, c, wm );
 }
 
-static void polygon_clipping_stage( sundog_polygon* output, sundog_polygon* input, int16_t clip, bool clip_direction, bool clip_vertical, window_manager* wm )
+static void polygon_clipping_stage( sdwm_polygon* output, sdwm_polygon* input, int16_t clip, bool clip_direction, bool clip_vertical, window_manager* wm )
 {
     input->vnum = output->vnum;
-    smem_copy( input->v, output->v, input->vnum * sizeof( sundog_vertex ) );
+    smem_copy( input->v, output->v, input->vnum * sizeof( sdwm_vertex ) );
     
     output->vnum = 0;
     
-    sundog_vertex* s = &input->v[ input->vnum - 1 ];
+    sdwm_vertex* s = &input->v[ input->vnum - 1 ];
     bool s_inside;
     if( clip_vertical )
     {
@@ -673,7 +673,7 @@ static void polygon_clipping_stage( sundog_polygon* output, sundog_polygon* inpu
     s_inside ^= clip_direction;
     for( int input_v = 0; input_v < input->vnum; input_v++ )
     {
-	sundog_vertex* e = &input->v[ input_v ];
+	sdwm_vertex* e = &input->v[ input_v ];
 	
 	bool e_inside;
 	if( clip_vertical )
@@ -705,7 +705,7 @@ static void polygon_clipping_stage( sundog_polygon* output, sundog_polygon* inpu
 	    }
 	}
 	
-	sundog_vertex* output_v;
+	sdwm_vertex* output_v;
 	if( add_intersection )
 	{
 	    output_v = &output->v[ output->vnum ];
@@ -823,16 +823,16 @@ static void polygon_clipping_stage( sundog_polygon* output, sundog_polygon* inpu
 }
 
 static void clip_polygon( 
-    sundog_polygon* subject, 
-    sundog_polygon* output, 
-    sundog_polygon* input, 
+    sdwm_polygon* subject, 
+    sdwm_polygon* output, 
+    sdwm_polygon* input, 
     int16_t offset_x, int16_t offset_y,
     int16_t clip_x, int16_t clip_y, int16_t clip_xsize, int16_t clip_ysize,
     window_manager* wm )
 {
     //Sutherland–Hodgman algorithm:
     output->vnum = subject->vnum;
-    smem_copy( output->v, subject->v, output->vnum * sizeof( sundog_vertex ) );
+    smem_copy( output->v, subject->v, output->vnum * sizeof( sdwm_vertex ) );
     for( int i = 0; i < output->vnum; i++ )
     {
 	output->v[ i ].x += offset_x;
@@ -872,21 +872,21 @@ static void clip_polygon(
     }
 }
 
-static void draw_triangle( sundog_vertex* v1, sundog_vertex* v2, sundog_vertex* v3, window_manager* wm )
+static void draw_triangle( sdwm_vertex* v1, sdwm_vertex* v2, sdwm_vertex* v3, window_manager* wm )
 {
     uint8_t one_t = v1->t;
     COLOR one_c = v1->c;
     
     //Sort vertices:
-    sundog_vertex* temp;
+    sdwm_vertex* temp;
     if( v1->y > v2->y ) { temp = v1; v1 = v2; v2 = temp; }
     if( v1->y > v3->y ) { temp = v1; v1 = v3; v3 = temp; }
     if( v2->y > v3->y ) { temp = v2; v2 = v3; v3 = temp; }
     
     //Check:
     if( v1->y == v3->y ) return;
-    bool color;
-    bool opacity;
+    bool color; //interpolate color
+    bool opacity; //interpolate opacity
     color = ( wm->cur_flags & WBD_FLAG_ONE_COLOR ) == 0;
     opacity = ( wm->cur_flags & WBD_FLAG_ONE_OPACITY ) == 0;
 
@@ -1355,15 +1355,15 @@ static void draw_triangle( sundog_vertex* v1, sundog_vertex* v2, sundog_vertex* 
     }
 }
 
-void draw_polygon( sundog_polygon* p, window_manager* wm )
+void draw_polygon( sdwm_polygon* p, window_manager* wm )
 {
     if( wm->cur_opacity == 0 ) return;
     if( wm->cur_window_invisible ) return;
 
     WINDOWPTR win = wm->cur_window;
 
-    sundog_polygon input;
-    sundog_polygon output;
+    sdwm_polygon input;
+    sdwm_polygon output;
     input.v = wm->poly_vertices1;
     output.v = wm->poly_vertices2;
     
@@ -1413,13 +1413,13 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
     utf32_to_sundog_font_char( c, c );
 
     int font_num = win->font;
-    FONT_LINE_TYPE* font = g_fonts[ font_num ];
-    int char_xsize = font[ 1 + c ];
-    int char_ysize = font[ 0 ];
+    sdwm_font* font = &wm->fonts[ font_num ];
+    int char_xsize = font->char_xsize[ c ];
+    int char_ysize = font->char_ysize;
 
     int zoom = wm->cur_font_scale * wm->font_zoom;
-    int char_xsize_zoom = ( char_xsize * zoom ) / 256;
-    int char_ysize_zoom = ( char_ysize * zoom ) / 256;
+    int char_xsize_zoom = ( char_xsize * zoom ) / (256*256);
+    int char_ysize_zoom = ( char_ysize * zoom ) / (256*256);
 
     if( c == ' ' ) return char_xsize_zoom;
     if( wm->cur_window_invisible ) return char_xsize_zoom;
@@ -1427,17 +1427,15 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
     if( WBD_OPENGL )
     {
 #ifdef OPENGL
-	sundog_image* font_img = wm->font_img[ font_num ];
-	int cxsize = wm->font_cxsize[ font_num ];
-	int cysize = wm->font_cysize[ font_num ];
+	sdwm_image* font_img = font->img;
 
 	font_img->opacity = wm->cur_opacity;
 	font_img->color = wm->cur_font_color;
 
-	float source_x = ( c & 15 ) * cxsize;
-	float source_y = ( c / 16 ) * cysize;
-	float source_xsize = char_xsize;
-	float source_ysize = char_ysize;
+	float source_x = font->grid_xoffset + ( c & 15 ) * font->grid_cell_xsize;
+	float source_y = font->grid_yoffset + ( c / 16 ) * font->grid_cell_ysize;
+	float source_xsize = font->char_xsize2[ c ];
+	float source_ysize = font->char_ysize2;
 	int dest_xsize = char_xsize_zoom;
 	int dest_ysize = char_ysize_zoom;
 	float pixel_xsize = source_xsize / (float)dest_xsize;
@@ -1536,8 +1534,9 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
 	int p = c * char_ysize;
 	int sp = y * screen_xsize + x;
 
-	font += 257;
+	const FONT_LINE_TYPE* font_data = font->data + 257;
 
+	zoom /= 256;
 	if( zoom == 256 )
 	{
 	    if( y + char_ysize > screen_ysize ) 
@@ -1551,7 +1550,7 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p ];
+		    int fpart = font_data[ p ];
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
 			if( fpart & FONT_LEFT_PIXEL ) 
@@ -1567,7 +1566,7 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p ];
+		    int fpart = font_data[ p ];
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
 			if( fpart & FONT_LEFT_PIXEL )
@@ -1597,7 +1596,7 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p + ( yy >> 15 ) ];
+		    int fpart = font_data[ p + ( yy >> 15 ) ];
 		    int xx = 0;
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
@@ -1614,7 +1613,7 @@ int draw_char( uint32_t c, int x, int y, window_manager* wm )
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p + ( yy >> 15 ) ];
+		    int fpart = font_data[ p + ( yy >> 15 ) ];
 		    int xx = 0;
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
@@ -1643,13 +1642,13 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
     utf32_to_sundog_font_char( c, c );
 
     int font_num = win->font;
-    FONT_LINE_TYPE* font = g_fonts[ font_num ];
-    int char_xsize = font[ 1 + c ];
-    int char_ysize = font[ 0 ];
+    sdwm_font* font = &wm->fonts[ font_num ];
+    int char_xsize = font->char_xsize[ c ];
+    int char_ysize = font->char_ysize;
 
     int zoom = wm->cur_font_scale * wm->font_zoom;
-    int char_xsize_zoom = ( char_xsize * zoom ) / 256;
-    int char_ysize_zoom = ( char_ysize * zoom ) / 256;
+    int char_xsize_zoom = ( char_xsize * zoom ) / (256*256);
+    int char_ysize_zoom = ( char_ysize * zoom ) / (256*256);
 
     if( c == ' ' ) return char_xsize_zoom;
     if( wm->cur_window_invisible ) return char_xsize_zoom;
@@ -1657,17 +1656,15 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
     if( WBD_OPENGL )
     {
 #ifdef OPENGL
-	sundog_image* font_img = wm->font_img[ font_num ];
-	int cxsize = wm->font_cxsize[ font_num ];
-	int cysize = wm->font_cysize[ font_num ];
+	sdwm_image* font_img = font->img;
 
 	font_img->opacity = wm->cur_opacity;
 	font_img->color = wm->cur_font_color;
 
-	float source_x = ( c & 15 ) * cxsize;
-	float source_y = ( c / 16 ) * cysize;
-	float source_xsize = char_xsize;
-	float source_ysize = char_ysize;
+	float source_x = font->grid_xoffset + ( c & 15 ) * font->grid_cell_xsize;
+	float source_y = font->grid_yoffset + ( c / 16 ) * font->grid_cell_ysize;
+	float source_xsize = font->char_xsize2[ c ];
+	float source_ysize = font->char_ysize2;
 	float source_pixel_xsize = source_xsize / (float)char_xsize_zoom;
 	float source_pixel_ysize = source_ysize / (float)char_ysize_zoom;
 	int dest_xsize = char_ysize_zoom;
@@ -1766,8 +1763,9 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
 	int p = c * char_ysize + char_ysize - 1;
 	COLORPTR sp = wm->screen_pixels + y * screen_xsize + x;
 
-	font += 257;
+	const FONT_LINE_TYPE* font_data = font->data + 257;
 
+	zoom /= 256;
 	if( zoom == 256 )
 	{
 	    int add = -screen_xsize * char_xsize + 1;
@@ -1775,7 +1773,7 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p ];
+		    int fpart = font_data[ p ];
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
 			if( fpart & FONT_LEFT_PIXEL )
@@ -1791,7 +1789,7 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p ];
+		    int fpart = font_data[ p ];
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
 			if( fpart & FONT_LEFT_PIXEL )
@@ -1815,7 +1813,7 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p - ( yy >> 15 ) ];
+		    int fpart = font_data[ p - ( yy >> 15 ) ];
 		    int xx = 0;
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
@@ -1832,7 +1830,7 @@ int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ) //top to bott
 	    {
 		for( int cy = 0; cy < char_ysize; cy++ )
 		{
-		    int fpart = font[ p - ( yy >> 15 ) ];
+		    int fpart = font_data[ p - ( yy >> 15 ) ];
 		    int xx = 0;
 		    for( int cx = 0; cx < char_xsize; cx++ )
 		    {
@@ -2117,7 +2115,7 @@ void draw_leftright( int x, int y, COLOR color, int right_add, window_manager* w
     wm->cur_font_color = prev_font_color;
 }
 
-void draw_image_scaled( int dest_x, int dest_y, sundog_image_scaled* img, window_manager* wm )
+void draw_image_scaled( int dest_x, int dest_y, sdwm_image_scaled* img, window_manager* wm )
 {
     if( !img ) return;
     if( !img->img ) return;
@@ -2340,12 +2338,12 @@ int font_char_x_size( uint32_t c, int font, window_manager* wm )
 {
     if( c == 0x0A ) return 0;
     utf32_to_sundog_font_char( c, c );
-    return (int)g_fonts[ font ][ 1 + c ] * wm->font_zoom;
+    return (int)wm->fonts[ font ].char_xsize[ c ] * wm->font_zoom / 256;
 }
 
 int font_char_y_size( int font, window_manager* wm )
 {
-    return (int)g_fonts[ font ][ 0 ] * wm->font_zoom;
+    return (int)wm->fonts[ font ].char_ysize * wm->font_zoom / 256;
 }
 
 int font_string_x_size( const char* str, int font, window_manager* wm )

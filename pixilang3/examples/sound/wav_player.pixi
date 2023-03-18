@@ -24,6 +24,7 @@ text_scale = 2
 
 //Sound options:
 sample_rate_scale = 1
+//sample_loop = 1
 
 // ########################################
 // ## SETUP COMPLETE ######################
@@ -117,7 +118,7 @@ while 1
     {
 	frame( 1000 / fps )
     }
-    if wav_ptr >= wav_size { breakall }
+    if !sample_loop && wav_ptr >= wav_size { breakall }
     while( get_event() ) { if EVT[ EVT_TYPE ] == EVT_QUIT { breakall } }
 }
 gfx_deinit()
@@ -206,12 +207,33 @@ fn audio_callback(
     $in_channels, 
     $latency_in_frames )
 {
-    if wav_ptr >= wav_size { ret( 0 ) }
+    if wav_ptr >= wav_size
+    {
+	if !sample_loop
+	{
+	    ret( 0 )
+	}
+    }
     $c = 0 while( $c < wav_channels )
     {
 	copy( $channels[ $c ], wav, 0, wav_ptr + $c, $frames, 1, wav_channels )
 	$c + 1
     }
     wav_ptr + $frames * wav_channels
+    if sample_loop
+    {
+	if wav_ptr >= wav_size
+	{
+	    $ff = ( wav_ptr - wav_size ) / wav_channels
+	    $p = $frames - $ff
+	    wav_ptr = 0
+	    $c = 0 while( $c < wav_channels )
+	    {
+		copy( $channels[ $c ], wav, $p, wav_ptr + $c, $ff, 1, wav_channels )
+    		$c + 1
+	    }
+	    wav_ptr + $ff * wav_channels
+	}
+    }
     ret( 1 )
 }

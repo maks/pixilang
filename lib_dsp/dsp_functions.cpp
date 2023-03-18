@@ -1,7 +1,8 @@
 /*
     dsp_functions.cpp
-    This file is part of the SunDog engine.
-    Copyright (C) 2008 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    This file is an independent part of the SunDog engine.
+    (SunDog headers are not required)
+    Copyright (C) 2008 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -9,6 +10,10 @@
 #include <math.h>
 
 #include "dsp.h"
+
+#ifdef SUNDOG_TEST
+#include "sundog.h"
+#endif
 
 template < typename T >
 static void do_fft( uint32_t flags, T* fi, T* fr, int size )
@@ -116,6 +121,51 @@ void fft( uint32_t flags, double* fi, double* fr, int size )
 {
     do_fft( flags, fi, fr, size );
 }
+
+#ifdef SUNDOG_TEST
+const int g_fft_test_size = 8;
+float g_fft_test_im[ g_fft_test_size ] = {};
+float g_fft_test_re[ g_fft_test_size ] = { 1, 1, 1, 1, 0, 0, 0, 0 };
+float g_fft_test_im2[ g_fft_test_size ] =
+{
+    0,
+    -0x1.3504f2p+1,
+    0,
+    -0x1.a82788p-2,
+    0,
+    0x1.a8279p-2,
+    0,
+    0x1.3504fp+1
+};
+float g_fft_test_re2[ g_fft_test_size ] = { 4, 1, 0, 1, 0, 1, 0, 1 };
+float fft_test( void )
+{
+    float err = 0;
+    float fft_im[ g_fft_test_size ];
+    float fft_re[ g_fft_test_size ];
+    for( int i = 0; i < g_fft_test_size; i++ )
+    {
+	fft_im[ i ] = g_fft_test_im[ i ];
+	fft_re[ i ] = g_fft_test_re[ i ];
+    }
+    fft( 0, fft_im, fft_re, 8 );
+    for( int i = 0; i < g_fft_test_size; i++ )
+    {
+	//slog( "%f %f - %f %f\n", fft_im[i], fft_re[i], g_fft_test_im2[i], g_fft_test_re2[i] );
+	err += fabs( fft_im[ i ] - g_fft_test_im2[ i ] );
+	err += fabs( fft_re[ i ] - g_fft_test_re2[ i ] );
+    }
+    fft( FFT_FLAG_INVERSE, fft_im, fft_re, 8 );
+    for( int i = 0; i < g_fft_test_size; i++ )
+    {
+	//slog( "%.8f %.8f - %.8f %.8f\n", fft_im[i], fft_re[i], g_fft_test_im[i], g_fft_test_re[i] );
+	err += fabs( fft_im[ i ] - g_fft_test_im[ i ] );
+	err += fabs( fft_re[ i ] - g_fft_test_re[ i ] );
+    }
+    //13 feb 2023: err = 0.0000015050172806
+    return err;
+}
+#endif
 
 int dsp_curve( int x, dsp_curve_type type ) //Input: 0...32768; Output: 0...32768
 {

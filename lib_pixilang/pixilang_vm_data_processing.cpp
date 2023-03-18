@@ -1,7 +1,7 @@
 /*
     pixilang_vm_data_processing.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -533,84 +533,85 @@
 	} \
     }
 
-static int pix_vm_op_cc_size_control( 
+inline int pix_vm_op_cc_size_control( 
     pix_vm_container* dest,
     pix_vm_container* src,
-    PIX_INT* dest_x, 
-    PIX_INT* dest_y, 
-    PIX_INT* src_x, 
-    PIX_INT* src_y, 
-    PIX_INT* xsize, 
-    PIX_INT* ysize )
+    PIX_INT& dest_x, 
+    PIX_INT& dest_y, 
+    PIX_INT& src_x, 
+    PIX_INT& src_y, 
+    PIX_INT& xsize, 
+    PIX_INT& ysize )
 {
-    if( *xsize == 0 && *ysize == 0 )
+    if( xsize == 0 && ysize == 0 )
     {
 	//Whole destination:
-	*dest_x = 0;
-	*dest_y = 0;
-	*xsize = dest->xsize;
-	*ysize = dest->ysize;
+	dest_x = 0;
+	dest_y = 0;
+	xsize = dest->xsize;
+	ysize = dest->ysize;
     }
 
-    if( *ysize )
+    if( ysize )
     {
-	if( *dest_x < 0 ) { *xsize += *dest_x; *src_x -= *dest_x; *dest_x = 0; }
-	if( *dest_y < 0 ) { *ysize += *dest_y; *src_y -= *dest_y; *dest_y = 0; }
-	if( *src_x < 0 ) { *xsize += *src_x; *dest_x -= *src_x; *src_x = 0; }
-	if( *src_y < 0 ) { *ysize += *src_y; *dest_y -= *src_y; *src_y = 0; }
-	if( *xsize <= 0 ) return 1;
-	if( *ysize <= 0 ) return 1;
-	if( *dest_x + *xsize > dest->xsize ) *xsize = dest->xsize - *dest_x;
-	if( *dest_y + *ysize > dest->ysize ) *ysize = dest->ysize - *dest_y;
-	if( *src_x + *xsize > src->xsize ) *xsize = src->xsize - *src_x;
-	if( *src_y + *ysize > src->ysize ) *ysize = src->ysize - *src_y;
+	if( dest_x < 0 ) { xsize += dest_x; src_x -= dest_x; dest_x = 0; }
+	if( dest_y < 0 ) { ysize += dest_y; src_y -= dest_y; dest_y = 0; }
+	if( src_x < 0 ) { xsize += src_x; dest_x -= src_x; src_x = 0; }
+	if( src_y < 0 ) { ysize += src_y; dest_y -= src_y; src_y = 0; }
+	if( dest_x + xsize > dest->xsize ) xsize = dest->xsize - dest_x;
+	if( dest_y + ysize > dest->ysize ) ysize = dest->ysize - dest_y;
+	if( src_x + xsize > src->xsize ) xsize = src->xsize - src_x;
+	if( src_y + ysize > src->ysize ) ysize = src->ysize - src_y;
+	if( xsize <= 0 ) return 1;
+	if( ysize <= 0 ) return 1;
     }
     else
     {
 	//One axis mode:
-	if( *dest_x < 0 ) { *xsize += *dest_x; *src_x -= *dest_x; *dest_x = 0; }
-	if( *src_x < 0 ) { *xsize += *src_x; *dest_x -= *src_x; *src_x = 0; }
-	if( *xsize <= 0 ) return 1;
-	if( *dest_x + *xsize > dest->size ) *xsize = dest->size - *dest_x;
-	if( *src_x + *xsize > src->size ) *xsize = src->size - *src_x;
-	*ysize = 1;
+	if( dest_x < 0 ) { xsize += dest_x; src_x -= dest_x; dest_x = 0; }
+	if( src_x < 0 ) { xsize += src_x; dest_x -= src_x; src_x = 0; }
+	if( dest_x + xsize > dest->size ) xsize = dest->size - dest_x;
+	if( src_x + xsize > src->size ) xsize = src->size - src_x;
+	if( xsize <= 0 ) return 1;
+	ysize = 1;
     }
 
     return 0;
 }
 
-static int pix_vm_op_c_size_control( 
+inline int pix_vm_op_c_size_control( 
     pix_vm_container* dest,
-    PIX_INT* dest_x, 
-    PIX_INT* dest_y, 
-    PIX_INT* xsize, 
-    PIX_INT* ysize )
+    PIX_INT& dest_x, 
+    PIX_INT& dest_y, 
+    PIX_INT& xsize, 
+    PIX_INT& ysize )
 {
-    if( *xsize == 0 && *ysize == 0 )
+    if( xsize == 0 )
     {
 	//Whole destination:
-	*dest_x = 0;
-	*dest_y = 0;
-	*xsize = dest->xsize;
-	*ysize = dest->ysize;
+	dest_x = 0;
+	dest_y = 0;
+	xsize = dest->xsize;
+	ysize = dest->ysize;
+	return 0;
     }
 
-    if( *ysize )
+    if( ysize )
     {
-	if( *dest_x < 0 ) { *xsize += *dest_x; *dest_x = 0; }
-	if( *dest_y < 0 ) { *ysize += *dest_y; *dest_y = 0; }
-	if( *xsize <= 0 ) return 1;
-	if( *ysize <= 0 ) return 1;
-	if( *dest_x + *xsize > dest->xsize ) *xsize = dest->xsize - *dest_x;
-	if( *dest_y + *ysize > dest->ysize ) *ysize = dest->ysize - *dest_y;
+	if( dest_x < 0 ) { xsize += dest_x; dest_x = 0; }
+	if( dest_y < 0 ) { ysize += dest_y; dest_y = 0; }
+	if( dest_x + xsize > dest->xsize ) xsize = dest->xsize - dest_x;
+	if( dest_y + ysize > dest->ysize ) ysize = dest->ysize - dest_y;
+	if( xsize <= 0 ) return 1;
+	if( ysize <= 0 ) return 1;
     }
     else
     {
 	//One axis mode:
-	if( *dest_x < 0 ) { *xsize += *dest_x; *dest_x = 0; }
-	if( *xsize <= 0 ) return 1;
-	if( *dest_x + *xsize > dest->size ) *xsize = dest->size - *dest_x;
-	*ysize = 1;
+	if( dest_x < 0 ) { xsize += dest_x; dest_x = 0; }
+	if( dest_x + xsize > dest->size ) xsize = dest->size - dest_x;
+	if( xsize <= 0 ) return 1;
+	ysize = 1;
     }
 
     return 0;
@@ -619,13 +620,11 @@ static int pix_vm_op_c_size_control(
 void pix_vm_op_cn( int opcode, PIX_CID cnum, int8_t val_type, PIX_VAL val, PIX_INT x, PIX_INT y, PIX_INT xsize, PIX_INT ysize, PIX_VAL* retval, int8_t* retval_type, pix_vm* vm )
 {
     PIX_INT rv = 0;
-    if( retval ) retval[ 0 ].i = 0;
-    if( retval_type ) retval_type[ 0 ] = 0;
     if( (unsigned)cnum >= (unsigned)vm->c_num ) { retval[ 0 ].i = -1; return; }
     pix_vm_container* c = vm->c[ cnum ];
     if( !c ) { retval[ 0 ].i = -1; return; }
 
-    if( pix_vm_op_c_size_control( c, &x, &y, &xsize, &ysize ) ) { retval[ 0 ].i = -1; return; }
+    if( pix_vm_op_c_size_control( c, x, y, xsize, ysize ) ) { retval[ 0 ].i = -1; return; }
 
     void* data = c->data;
 
@@ -1519,7 +1518,7 @@ PIX_INT pix_vm_op_cc( int opcode, PIX_CID cnum1, PIX_CID cnum2, PIX_INT dest_x, 
 	PIX_VM_LOG( "op_cc: dest.type(%s) != src.type(%s); source type must be equal to destination type\n", g_pix_container_type_names[ c1->type ], g_pix_container_type_names[ c2->type ] );
 	return -1;
     }
-    if( pix_vm_op_cc_size_control( c1, c2, &dest_x, &dest_y, &src_x, &src_y, &xsize, &ysize ) ) return -1;
+    if( pix_vm_op_cc_size_control( c1, c2, dest_x, dest_y, src_x, src_y, xsize, ysize ) ) return -1;
 
     void* data1 = c1->data;
     void* data2 = c2->data;
@@ -1958,7 +1957,7 @@ PIX_INT pix_vm_op_ccn( int opcode, PIX_CID cnum1, PIX_CID cnum2, int8_t val_type
 	PIX_VM_LOG( "op_ccn: dest.type(%s) != src.type(%s); source type must be equal to destination type\n", g_pix_container_type_names[ c1->type ], g_pix_container_type_names[ c2->type ] );
 	return -1;
     }
-    if( pix_vm_op_cc_size_control( c1, c2, &dest_x, &dest_y, &src_x, &src_y, &xsize, &ysize ) ) return -1;
+    if( pix_vm_op_cc_size_control( c1, c2, dest_x, dest_y, src_x, src_y, xsize, ysize ) ) return -1;
 
     void* data1 = c1->data;
     void* data2 = c2->data;
@@ -2072,9 +2071,9 @@ PIX_INT pix_vm_generator( int opcode, PIX_CID cnum, PIX_FLOAT* fval, PIX_INT x, 
     PIX_INT rv = 0;
     if( (unsigned)cnum >= (unsigned)vm->c_num ) return -1;
     pix_vm_container* c = vm->c[ cnum ];
-    if( c == 0 ) return -1;
+    if( !c ) return -1;
 
-    if( pix_vm_op_c_size_control( c, &x, &y, &xsize, &ysize ) ) return -1;
+    if( pix_vm_op_c_size_control( c, x, y, xsize, ysize ) ) return -1;
 
     void* data = c->data;
 

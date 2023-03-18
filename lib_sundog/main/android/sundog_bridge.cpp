@@ -1,7 +1,7 @@
 /*
     sundog_bridge.cpp - SunDog<->System bridge
     This file is part of the SunDog engine.
-    Copyright (C) 2012 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2012 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -754,6 +754,11 @@ char* android_sundog_get_external_files_dir( int n ) //n: 0 - primary; 1 - secon
 int android_sundog_copy_resources( void )
 {
     return java_call_i_v( "CopyResources" );
+}
+
+char* android_sundog_get_host_ips( sundog_engine* s, int mode )
+{
+    return java_call2_s_i( "GetHostIPs", mode );
 }
 
 void android_sundog_open_url( sundog_engine* s, const char* url_text )
@@ -1786,9 +1791,6 @@ void android_main( struct android_app* state )
         int events;
         struct android_poll_source* source;
 
-        // If not animating, we will block forever waiting for events.
-        // If animating, we loop until all events are read, then continue
-        // to draw the next frame of animation.
         while( ( ident = ALooper_pollAll( -1, NULL, &events, (void**)&source ) ) >= 0 ) 
         {
 

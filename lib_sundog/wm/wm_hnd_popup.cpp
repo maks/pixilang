@@ -1,7 +1,7 @@
 /*
     wm_hnd_popup.cpp
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 

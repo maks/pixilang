@@ -1,10 +1,9 @@
 #pragma once
 
-#include "regions/device.h"
-#include "wm_struct.h"
-
 typedef uint8_t FONT_LINE_TYPE;
+typedef uint8_t FONT_SPX_TYPE;
 extern FONT_LINE_TYPE* g_fonts[]; //font: 257 bytes of header (ysize, xsize0, xsize1, xsize2, ...); ysize*256 (1bit pixel data);
+extern FONT_SPX_TYPE* g_fonts_spx[]; //special pixels: char,x|y,char,x|y,...
 extern const char* g_font_names[];
 extern int g_fonts_count;
 #define FONT_LEFT_PIXEL ( 1 << ( sizeof( FONT_LINE_TYPE ) * 8 - 1 ) )
@@ -14,6 +13,9 @@ extern int g_fonts_count;
 #define DEFAULT_FONT_MEDIUM_MONO 	FONT_MEDIUM_MONO
 #define DEFAULT_FONT_BIG 		FONT_BIG
 #define DEFAULT_FONT_SMALL 		FONT_MEDIUM_MONO
+
+#include "regions/device.h"
+#include "wm_struct.h"
 
 #define STR_SHORT_SPACE "\x01"
 #define STR_HATCHING "\x10"
@@ -34,6 +36,7 @@ extern int g_fonts_count;
 #define STR_CORNER_LB "\x1E"
 #define STR_CORNER_LT "\x1F"
 #define STR_MEMORY_CARD "\x0D"
+#define STR_HEART "\x0C"
 extern const char* g_str_short_space;
 extern const char* g_str_hatching;
 extern const char* g_str_largest_char;
@@ -174,7 +177,7 @@ inline int window_handler_check_data( sundog_event* evt, window_manager* wm )
 
 //###################################
 //## DATA CONTAINERS:              ##
-//## (empty windows with some dta) ##
+//## (empty windows with some data)##
 //###################################
 
 WINDOWPTR add_data_container( WINDOWPTR win, const char* name, void* new_data_block ); //new_data_block - just created with smem_new()
@@ -225,6 +228,28 @@ WINDOWPTR new_window_with_decorator(
     win_handler_t win_handler,
     uint flags, //DECOR_FLAG_xxx
     window_manager* wm ); //retval = decorator
+
+//###################################
+//## Auto alignment                ##
+//###################################
+
+struct btn_autoalign_data
+{
+    int y;
+    int i; //current item (column);
+    WINDOWPTR* ww;
+    uint32_t flags;
+    window_manager* wm;
+};
+
+void btn_autoalign_init( btn_autoalign_data* aa, window_manager* wm, uint32_t flags );
+void btn_autoalign_deinit( btn_autoalign_data* aa );
+void btn_autoalign_add( btn_autoalign_data* aa, WINDOWPTR w, uint32_t flags );
+//#define BTN_AUTOALIGN_LINE_LEFT               0
+//#define BTN_AUTOALIGN_LINE_CENTER     1
+//#define BTN_AUTOALIGN_LINE_RIGHT      2
+#define BTN_AUTOALIGN_LINE_EVENLY       3
+void btn_autoalign_next_line( btn_autoalign_data* aa, uint32_t flags );
 
 //###################################
 //## DRAWING FUNCTIONS:            ##
@@ -549,13 +574,13 @@ void win_draw_image_ext(
     int dest_ysize,
     int source_x,
     int source_y,
-    sundog_image* img, 
+    sdwm_image* img, 
     window_manager* wm );
 void win_draw_image( 
     WINDOWPTR win, 
     int x, 
     int y, 
-    sundog_image* img, 
+    sdwm_image* img, 
     window_manager* wm );
 bool line_clip( int* x1, int* y1, int* x2, int* y2, int clip_x1, int clip_y1, int clip_x2, int clip_y2 );
 void win_draw_line( WINDOWPTR win, int x1, int y1, int x2, int y2, COLOR color, window_manager* wm );
@@ -585,14 +610,14 @@ void fb_draw_image(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm );
 
 //###################################
 //## IMAGE FUNCTIONS:              ##
 //###################################
 
-sundog_image* new_image( 
+sdwm_image* new_image( 
     int xsize, 
     int ysize, 
     void* src,
@@ -600,15 +625,16 @@ sundog_image* new_image(
     int src_ysize,
     uint flags,
     window_manager* wm );
-void update_image( sundog_image* img, int x, int y, int xsize, int ysize );
-void update_image( sundog_image* img );
-sundog_image* resize_image( sundog_image* img, int resize_flags, int new_xsize, int new_ysize );
-void remove_image( sundog_image* img );
+void update_image( sdwm_image* img, int x, int y, int xsize, int ysize );
+void update_image( sdwm_image* img );
+sdwm_image* resize_image( sdwm_image* img, int resize_flags, int new_xsize, int new_ysize );
+void remove_image( sdwm_image* img );
 
 //###################################
 //## KEYMAP FUNCTIONS:             ##
 //###################################
 
+const char* get_key_name( int key );
 sundog_keymap* keymap_new( window_manager* wm );
 void keymap_remove( sundog_keymap* km, window_manager* wm );
 void keymap_silent( sundog_keymap* km, bool silent, window_manager* wm );
@@ -621,9 +647,10 @@ int keymap_bind2( sundog_keymap* km, int section_num, int key, uint flags, uint 
 int keymap_bind( sundog_keymap* km, int section_num, int key, uint flags, int action_num, int bind_num, int bind_flags, window_manager* wm );
 int keymap_get_action( sundog_keymap* km, int section_num, int key, uint flags, uint pars1, uint pars2, window_manager* wm );
 sundog_keymap_key* keymap_get_key( sundog_keymap* km, int section_num, int action_num, int key_num, window_manager* wm );
-bool keymap_midi_note_assigned( sundog_keymap* km, int note, window_manager* wm );
+bool keymap_midi_note_assigned( sundog_keymap* km, int note, int channel, window_manager* wm );
 int keymap_save( sundog_keymap* km, sprofile_data* profile, window_manager* wm );
 int keymap_load( sundog_keymap* km, sprofile_data* profile, window_manager* wm );
+int keymap_print_available_keys( sundog_keymap* km, int section_num, int key_flags, window_manager* wm );
 
 //###################################
 //## WBD FUNCTIONS:                ##
@@ -643,7 +670,7 @@ void draw_frect( int x, int y, int xsize, int ysize, COLOR color, window_manager
 void draw_hgradient( int x, int y, int xsize, int ysize, COLOR c, int t1, int t2, window_manager* wm );
 void draw_vgradient( int x, int y, int xsize, int ysize, COLOR c, int t1, int t2, window_manager* wm );
 void draw_corners( int x, int y, int xsize, int ysize, int size, int len, COLOR c, window_manager* wm );
-void draw_polygon( sundog_polygon* p, window_manager* wm );
+void draw_polygon( sdwm_polygon* p, window_manager* wm );
 int draw_char( uint32_t c, int x, int y, window_manager* wm );
 int draw_char_vert( uint32_t c, int x, int y, window_manager* wm ); //top to bottom
 void draw_string( const char* str, int x, int y, window_manager* wm );
@@ -652,7 +679,7 @@ void draw_string_wordwrap( const char* str, int x, int y, int xsize, int* out_xs
 void draw_string_limited( const char* str, int x, int y, int limit, window_manager* wm ); //limit in utf8 chars
 void draw_updown( int x, int y, COLOR color, int down_add, window_manager* wm );
 void draw_leftright( int x, int y, COLOR color, int right_add, window_manager* wm );
-void draw_image_scaled( int dest_x, int dest_y, sundog_image_scaled* img, window_manager* wm );
+void draw_image_scaled( int dest_x, int dest_y, sdwm_image_scaled* img, window_manager* wm );
 
 int font_char_x_size( uint32_t c, int font, window_manager* wm );
 int font_char_y_size( int font, window_manager* wm );
@@ -690,7 +717,8 @@ uint32_t divider_get_flags( WINDOWPTR win );
 #define LABEL_FLAG_ALIGN_TOP			( 1 << 0 )
 #define LABEL_FLAG_ALIGN_BOTTOM			( 1 << 1 )
 #define LABEL_FLAGS_ALIGN			( LABEL_FLAG_ALIGN_TOP | LABEL_FLAG_ALIGN_BOTTOM )
-#define LABEL_FLAG_WINCOLOR_IS_TEXTCOLOR	( 1 << 2 )
+#define LABEL_FLAG_WORDWRAP			( 1 << 2 )
+#define LABEL_FLAG_WINCOLOR_IS_TEXTCOLOR	( 1 << 3 )
 int label_handler( sundog_event* evt, window_manager* wm );
 void label_set_flags( WINDOWPTR win, uint32_t flags );
 uint32_t label_get_flags( WINDOWPTR win );
@@ -734,15 +762,18 @@ uint32_t text_get_flags( WINDOWPTR win );
 #define BUTTON_FLAG_AUTOREPEAT			( 1 << 5 )
 #define BUTTON_FLAG_FLAT 			( 1 << 6 )
 int button_handler( sundog_event* evt, window_manager* wm );
+void button_set_begin_handler( WINDOWPTR win, win_action_handler2_t handler, void* handler_data );
+void button_set_end_handler( WINDOWPTR win, win_action_handler2_t handler, void* handler_data );
 void button_set_menu( WINDOWPTR win, const char* menu );
 void button_set_menu_val( WINDOWPTR win, int val );
 int button_get_menu_val( WINDOWPTR win );
+int button_get_prev_menu_val( WINDOWPTR win );
 void button_set_text( WINDOWPTR win, const char* text );
 void button_set_text_color( WINDOWPTR win, COLOR c );
 void button_set_text_opacity( WINDOWPTR win, uint8_t opacity );
 int button_get_text_opacity( WINDOWPTR win );
 void button_set_val( WINDOWPTR win, const char* val );
-void button_set_images( WINDOWPTR win, sundog_image_scaled* img1, sundog_image_scaled* img2 );
+void button_set_images( WINDOWPTR win, sdwm_image_scaled* img1, sdwm_image_scaled* img2 );
 void button_set_flags( WINDOWPTR win, uint32_t flags );
 uint32_t button_get_flags( WINDOWPTR win );
 int button_get_evt_flags( WINDOWPTR win );
@@ -755,13 +786,12 @@ int button_get_optimal_xsize( const char* button_name, int font, bool smallest_a
 #define BUTTON_AUTOREPEAT_START( DATA, HANDLER ) \
 { \
     remove_timer( DATA->autorepeat_timer, wm ); \
-    int autorepeat_delay = stime_ticks_per_second() / g_button_autorepeat_delay[ 0 ]; \
+    int autorepeat_delay = stime_ms_to_ticks( wm->mouse_autorepeat_delay ); \
     DATA->autorepeat_timer = add_timer( HANDLER, DATA, autorepeat_delay, wm ); \
     DATA->autorepeat_base = stime_ticks() + autorepeat_delay; \
 }
-#define BUTTON_AUTOREPEAT_ACCELERATE( DATA ) button_autorepeat_accelerate( timer, DATA->autorepeat_base )
-extern const int g_button_autorepeat_delay[ 5 ];
-void button_autorepeat_accelerate( sundog_timer* timer, ticks_t base );
+#define BUTTON_AUTOREPEAT_ACCELERATE( DATA ) button_autorepeat_accelerate( timer, DATA->autorepeat_base, wm )
+void button_autorepeat_accelerate( sundog_timer* timer, ticks_t base, window_manager* wm );
 
 #define LIST_ACTION_UPDOWN	1
 #define LIST_ACTION_ENTER	2
@@ -817,9 +847,11 @@ void scrollbar_call_handler( WINDOWPTR win );
 bool scrollbar_get_editing_state( WINDOWPTR win );
 
 #define RESIZER_FLAG_TOPDOWN	( 1 << 0 )
+#define RESIZER_FLAG_OPTBTN	( 1 << 1 )
 int resizer_handler( sundog_event* evt, window_manager* wm );
 void resizer_set_parameters( WINDOWPTR win, int min_x, int min_y );
 void resizer_get_vals( WINDOWPTR win, int* x, int* y );
+void resizer_set_opt_handler( WINDOWPTR win, win_action_handler_t handler, void* handler_data );
 void resizer_set_flags( WINDOWPTR win, uint32_t flags );
 uint32_t resizer_get_flags( WINDOWPTR win );
 
@@ -834,12 +866,12 @@ char* fdialog_get_filename( WINDOWPTR win );
 #define DIALOG_FLAG_AUTOREMOVE_ITEMS		( 1 << 0 ) //free dialog_item* items before close
 void clear_dialog_constructor_options( window_manager* wm );
 int dialog_handler( sundog_event* evt, window_manager* wm );
-void dialog_reinit_items( WINDOWPTR win, bool show_and_focus ); //win = dialog or decorator with dialog
+void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ); //pwin = dialog or decorator with dialog
 dialog_item* dialog_get_items( WINDOWPTR win ); //...
 void dialog_set_flags( WINDOWPTR win, uint32_t flags ); //...
 void dialog_set_par( WINDOWPTR win, int par_id, int val ); //...
 int dialog_get_par( WINDOWPTR win, int par_id );
-int dialog_get_item_ysize( int type, WINDOWPTR win );
+int dialog_get_item_ysize( int type, WINDOWPTR pwin ); //pwin = dialog or decorator with dialog
 dialog_item* dialog_new_item( dialog_item** itemlist );
 dialog_item* dialog_get_item( dialog_item* itemlist, uint32_t id );
 void dialog_stack_add( WINDOWPTR win );
@@ -911,14 +943,22 @@ void webserver_wait_for_close( window_manager* wm );
 //###################################
 
 #ifdef OPENGL
+
+#define GL_ORTHO_MAX_DEPTH	32768
+
+//Small shift for correct (per-pixel accuracy) display of 2D UI elements:
+#define GL_2D_LINE_SHIFT	0.5
+//0.5 - most accurate value, but it leads to inaccuracy when scaling the screen by an even factor (gl_xscale, gl_yscale, screen_zoom);
+//to avoid this inaccuracy - use 0.375
+
 //THREAD-SAFE:
 //(can be called from any thread with the same OpenGL context)
 int gl_lock( window_manager* wm );
 void gl_unlock( window_manager* wm );
 int gl_init( window_manager* wm );
 void gl_deinit( window_manager* wm );
-#define GL_ORTHO_MAX_DEPTH          32768
 void gl_resize( window_manager* wm );
+
 //NOT THREAD-SAFE:
 //(can only be called between gl_lock/unlock() or win_draw_lock/unlock())
 #define GL_BIND_TEXTURE( WM, ID ) if( WM->gl_current_texture != ID ) { glBindTexture( GL_TEXTURE_2D, ID ); WM->gl_current_texture = ID; }
@@ -932,6 +972,14 @@ void gl_resize( window_manager* wm );
 	    WM->gl_current_texture = 0; \
 	    break; \
 	} \
+    } \
+}
+#define GL_CHANGE_PROG_XY_ADD( P, XY_ADD ) \
+{ \
+    if( P->xy_add != (float)(XY_ADD) ) \
+    { \
+	P->xy_add = (float)(XY_ADD); \
+	glUniform1f( P->uniforms[ GL_PROG_UNI_XY_ADD ], (float)(XY_ADD) ); \
     } \
 }
 #define GL_CHANGE_PROG_COLOR( P, COLOR, OPACITY ) \
@@ -955,20 +1003,20 @@ void gl_resize( window_manager* wm );
 }
 void gl_draw_points( int16_t* coord2d, COLOR color, int count, window_manager* wm );
 void gl_draw_triangles( int16_t* coord2d, COLOR color, int count, window_manager* wm );
-void gl_draw_polygon( sundog_polygon* p, window_manager* wm );
+void gl_draw_polygon( sdwm_polygon* p, window_manager* wm );
 void gl_draw_image_scaled(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     float src_x, float src_y,
     float src_xs, float src_ys,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm );
 void gl_draw_image_scaled_vert(
     int dest_x, int dest_y, //top left corner
     int dest_xs, int dest_ys,
     float src_x, float src_y, //source in normal (norizontal) orientation
     float src_xs, float src_ys,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm );
 void gl_draw_line( int x1, int y1, int x2, int y2, COLOR color, window_manager* wm );
 void gl_draw_frect( int x, int y, int xsize, int ysize, COLOR color, window_manager* wm );
@@ -976,7 +1024,7 @@ void gl_draw_image(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm );
 void gl_bind_framebuffer( GLuint fb, window_manager* wm );
 void gl_set_default_viewport( window_manager* wm );
@@ -991,8 +1039,11 @@ void gl_init_uniform( gl_program_struct* prog, int n, const char* name );
 void gl_init_attribute( gl_program_struct* prog, int n, const char* name );
 void gl_enable_attributes( gl_program_struct* prog, uint attr );
 void gl_program_reset( window_manager* wm );
+
 #else
+
 inline int gl_lock( window_manager* wm ) { return 0; }
 #define gl_unlock( wm ) {}
 #define gl_resize( wm ) {}
+
 #endif

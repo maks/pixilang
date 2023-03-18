@@ -4,15 +4,14 @@
 // Main Pixilang Virtual Machine Configuration: **********************
 //********************************************************************
 
-#define PIXILANG_VERSION ( ( 3 << 24 ) | ( 8 << 16 ) | ( 2 << 8 ) | ( 1 << 0 ) )
-#define PIXILANG_VERSION_STR "v3.8.2b"
+#define PIXILANG_VERSION ( ( 3 << 24 ) | ( 8 << 16 ) | ( 3 << 8 ) | ( 1 << 0 ) )
+#define PIXILANG_VERSION_STR "v3.8.3b"
 
 #define PIX_VM_THREADS		    16
 #define PIX_VM_SYSTEM_THREADS	    3 /* threads-1 == audio; threads-2 == opengl; threads-3 == video capture callback */
 #define PIX_VM_STACK_SIZE	    8192 /* number of PIX_VALs */
 #define PIX_VM_EVENTS		    64
 
-#define PIX_VM_FONTS		    8
 #define PIX_VM_AUDIO_CHANNELS       2
 #define PIX_VM_SUNVOX_STREAMS       8
 
@@ -21,6 +20,8 @@ typedef float PIX_FLOAT; //Pixilang floating point type
 typedef uint32_t PIX_OPCODE; //VM opcode type
 typedef int32_t PIX_CID; //Container ID
 typedef int32_t PIX_ADDR; //Pixilang code address (instruction offset)
+typedef uint32_t PIX_PC; //Program Counter
+typedef uint32_t PIX_SP; //Stack Pointer
 #define PIX_INT_BITS ( sizeof( PIX_INT ) * 8 )
 #define PIX_FLOAT_BITS ( sizeof( PIX_FLOAT ) * 8 )
 
@@ -45,6 +46,13 @@ typedef int32_t PIX_ADDR; //Pixilang code address (instruction offset)
 #define PIX_MAX_FIXED_MATH 	    ( 1 << ( PIX_INT_BITS - PIX_FIXED_MATH_PREC - 1 ) )
 
 #define PIX_T_MATRIX_STACK_SIZE	    16
+
+//#define PIX_SAFE_VM //More checks to prevent segfaults; required if the Pixilang is running as a script interpreter inside some other app
+#ifdef PIX_SAFE_VM
+    #define PIX_CHECK_SP( SP )	( ( SP ) & ( PIX_VM_STACK_SIZE - 1 ) )
+#else
+    #define PIX_CHECK_SP( SP )	( SP )
+#endif
 
 //********************************************************************
 //********************************************************************
@@ -179,6 +187,8 @@ enum
     FN_SET_PIXI_PROP,
     FN_REMOVE_PIXI_PROP,
     FN_REMOVE_PIXI_PROPS,
+    FN_GET_PIXI_PROPLIST,
+    FN_REMOVE_PIXI_PROPLIST,
     FN_CONVERT_PIXI_TYPE,
     FN_SHOW_SMEM_DEBUG_MESSAGES,
     FN_ZLIB_PACK,
@@ -196,6 +206,7 @@ enum
     FN_STRLEN,
     FN_STRSTR,
     FN_SPRINTF,
+    FN_SPRINTF2,
     FN_PRINTF,
     FN_FPRINTF,
 
@@ -388,6 +399,7 @@ enum
     FN_SV_GET_CURRENT_LINE2,
     FN_SV_GET_CURRENT_SIGLEVEL,
     FN_SV_GET_NAME,
+    FN_SV_SET_NAME,
     FN_SV_GET_BPM,
     FN_SV_GET_TPL,
     FN_SV_GET_LEN_FRAMES,
@@ -401,28 +413,49 @@ enum
     FN_SV_FLOAD_MODULE,
     FN_SV_SAMPLER_LOAD,
     FN_SV_SAMPLER_FLOAD,
+    FN_SV_METAMODULE_LOAD,
+    FN_SV_METAMODULE_FLOAD,
+    FN_SV_VPLAYER_LOAD,
+    FN_SV_VPLAYER_FLOAD,
     FN_SV_GET_NUMBER_OF_MODULES,
     FN_SV_FIND_MODULE,
     FN_SV_SELECTED_MODULE,
     FN_SV_GET_MODULE_FLAGS,
     FN_SV_GET_MODULE_INPUTS,
     FN_SV_GET_MODULE_OUTPUTS,
+    FN_SV_GET_MODULE_TYPE,
     FN_SV_GET_MODULE_NAME,
+    FN_SV_SET_MODULE_NAME,
     FN_SV_GET_MODULE_XY,
+    FN_SV_SET_MODULE_XY,
     FN_SV_GET_MODULE_COLOR,
+    FN_SV_SET_MODULE_COLOR,
     FN_SV_GET_MODULE_FINETUNE,
+    FN_SV_SET_MODULE_FINETUNE,
+    FN_SV_SET_MODULE_RELNOTE,
     FN_SV_GET_MODULE_SCOPE,
     FN_SV_MODULE_CURVE,
     FN_SV_GET_MODULE_CTL_CNT,
     FN_SV_GET_MODULE_CTL_NAME,
     FN_SV_GET_MODULE_CTL_VALUE,
+    FN_SV_SET_MODULE_CTL_VALUE,
+    FN_SV_GET_MODULE_CTL_MIN,
+    FN_SV_GET_MODULE_CTL_MAX,
+    FN_SV_GET_MODULE_CTL_OFFSET,
+    FN_SV_GET_MODULE_CTL_TYPE,
+    FN_SV_GET_MODULE_CTL_GROUP,
+    FN_SV_NEW_PAT,
+    FN_SV_REMOVE_PAT,
     FN_SV_GET_NUMBER_OF_PATS,
     FN_SV_FIND_PATTERN,
     FN_SV_GET_PAT_X,
     FN_SV_GET_PAT_Y,
+    FN_SV_SET_PAT_XY,
     FN_SV_GET_PAT_TRACKS,
     FN_SV_GET_PAT_LINES,
+    FN_SV_SET_PAT_SIZE,
     FN_SV_GET_PAT_NAME,
+    FN_SV_SET_PAT_NAME,
     FN_SV_GET_PAT_DATA,
     FN_SV_SET_PAT_EVENT,
     FN_SV_GET_PAT_EVENT,
@@ -618,8 +651,8 @@ enum
     GL_SHADER_GRAD,
     GL_SHADER_TEX_ALPHA_SOLID,
     GL_SHADER_TEX_ALPHA_GRAD,
-    GL_SHADER_TEX_RGB_SOLID,
-    GL_SHADER_TEX_RGB_GRAD,
+    GL_SHADER_TEX_RGBA_SOLID,
+    GL_SHADER_TEX_RGBA_GRAD,
     GL_SHADER_MAX
 };
 
@@ -638,7 +671,8 @@ enum
 #define PIX_CONTAINER_FLAG_GL_FRAMEBUFFER	( 1 << 9 )
 #define PIX_CONTAINER_FLAG_GL_FRAMEBUFFER_WITH_DEPTH	( 1 << 10 )
 #define PIX_CONTAINER_FLAG_GL_PROG		( 1 << 11 )
-#define PIX_CONTAINER_FLAG_INTERP		( 1 << 12 )
+#define PIX_CONTAINER_FLAG_GL_NPOT		( 1 << 12 )
+#define PIX_CONTAINER_FLAG_INTERP		( 1 << 13 )
 
 enum pix_data_opcode
 {
@@ -834,10 +868,11 @@ enum
 #define PIX_SV_TIME_MAP_FRAMECNT   	1
 #define PIX_SV_TIME_MAP_TYPE_MASK   	3
 #define PIX_SV_MODULE_FLAG_EXISTS 	( 1 << 0 )
-#define PIX_SV_MODULE_FLAG_EFFECT 	( 1 << 1 )
-#define PIX_SV_MODULE_FLAG_MUTE 	( 1 << 2 )
-#define PIX_SV_MODULE_FLAG_SOLO 	( 1 << 3 )
-#define PIX_SV_MODULE_FLAG_BYPASS 	( 1 << 4 )
+#define PIX_SV_MODULE_FLAG_GENERATOR 	( 1 << 1 )
+#define PIX_SV_MODULE_FLAG_EFFECT 	( 1 << 2 )
+#define PIX_SV_MODULE_FLAG_MUTE 	( 1 << 3 )
+#define PIX_SV_MODULE_FLAG_SOLO 	( 1 << 4 )
+#define PIX_SV_MODULE_FLAG_BYPASS 	( 1 << 5 )
 #define PIX_SV_MODULE_INPUTS_OFF 	16
 #define PIX_SV_MODULE_INPUTS_MASK 	( 255 << PIX_SV_MODULE_INPUTS_OFF )
 #define PIX_SV_MODULE_OUTPUTS_OFF 	( 16 + 8 )
@@ -872,10 +907,10 @@ struct pix_vm_thread
     bool		thread_open; //TRUE if it is a separate non-blocking thread
     int			thread_num;
     pix_vm*		vm;
-    
-    size_t		pc; //Program counter
-    size_t		sp; //Stack pointer (grows down)
-    size_t		fp; //Stack frame pointer
+
+    PIX_PC		pc; //Program counter
+    PIX_SP		sp; //Stack pointer (grows down)
+    PIX_SP		fp; //Stack frame pointer
 
     PIX_VAL		stack[ PIX_VM_STACK_SIZE ];
     int8_t		stack_types[ PIX_VM_STACK_SIZE ];
@@ -883,7 +918,7 @@ struct pix_vm_thread
 
 struct pix_vm_function
 {
-    size_t		addr;
+    PIX_ADDR		addr;
     PIX_VAL*		p;
     int8_t*		p_types;
     int			p_num;
@@ -946,11 +981,20 @@ struct pix_vm_container //Universal container - base component of Pixilang
 
 struct pix_vm_font
 {
-    PIX_CID 		font; //container
-    int			xchars;
-    int 		ychars;
-    uint32_t		first;
-    uint32_t		last;
+    PIX_CID 		font; //container with the font texture (glyph atlas)
+    uint32_t		first; //first unicode character
+    uint32_t		last; //last unicode character
+    uint16_t		char_xsize; //visible char size
+    uint16_t		char_ysize; //...
+    uint16_t		char_xsize2; //char size on the font texture
+    uint16_t		char_ysize2; //...
+    //grid inside the font texture:
+    uint16_t		grid_xoffset;
+    uint16_t		grid_yoffset;
+    uint16_t		grid_cell_xsize;
+    uint16_t		grid_cell_ysize;
+    uint16_t		xchars;
+    uint16_t		ychars;
 };
 
 struct pix_vm_text_line
@@ -1110,9 +1154,9 @@ struct pix_vm //Pixilang virtual machine
     bool		ready;
     
     PIX_OPCODE*		code;
-    size_t		code_ptr;
-    size_t		code_size;
-    size_t		halt_addr; //Address of HALT instruction; functions must returns to this addr.
+    PIX_PC		code_ptr;
+    PIX_PC		code_size;
+    PIX_PC		halt_addr; //Address of HALT instruction; functions must returns to this addr.
     
     PIX_VAL*		vars; //Global variables
     int8_t*		var_types; //Global variable types
@@ -1146,7 +1190,8 @@ struct pix_vm //Pixilang virtual machine
     
     uint8_t		transp; //Opacity
     
-    pix_vm_font		fonts[ PIX_VM_FONTS ];
+    pix_vm_font*	fonts;
+    int			fonts_num;
     uint32_t*		text;
     pix_vm_text_line*	text_lines;
 
@@ -1193,7 +1238,8 @@ struct pix_vm //Pixilang virtual machine
     pix_vm_sunvox*	sv[ PIX_VM_SUNVOX_STREAMS ];
 #endif
     
-    uint		timers[ 16 ]; //User defined timers
+    uint*		timers; //User defined timers
+    int			timers_num;
     
     int16_t            	events_count; //Number of events to execute
     int16_t	       	current_event_num;
@@ -1209,8 +1255,11 @@ struct pix_vm //Pixilang virtual machine
     size_t		log_ptr;
     char*		log_prev_msg; //Previous message
     size_t		log_prev_msg_len;
+    int			log_prev_msg_repeat_cnt;
     char		log_temp_str[ 4096 ];
     smutex		log_mutex;
+    
+    char*		compiler_errors;
     
     sfs_file		virt_disk0;
     
@@ -1250,6 +1299,7 @@ struct pix_vm //Pixilang virtual machine
     int                 gl_transform_counter;
     float		gl_wm_transform[ 4 * 4 ];
     float		gl_wm_transform_prev[ 4 * 4 ];
+    bool		gl_no_2d_line_shift; //don't shift the lines and dots for per-pixel accuracy
     GLuint              gl_vshader_solid;
     GLuint              gl_vshader_gradient;
     GLuint              gl_vshader_tex_solid;
@@ -1258,20 +1308,20 @@ struct pix_vm //Pixilang virtual machine
     GLuint              gl_fshader_gradient;
     GLuint              gl_fshader_tex_alpha_solid;
     GLuint              gl_fshader_tex_alpha_gradient;
-    GLuint              gl_fshader_tex_rgb_solid;
-    GLuint              gl_fshader_tex_rgb_gradient;
+    GLuint              gl_fshader_tex_rgba_solid;
+    GLuint              gl_fshader_tex_rgba_gradient;
     gl_program_struct*  gl_current_prog;
     gl_program_struct*  gl_user_defined_prog;
     gl_program_struct*  gl_prog_solid;
     gl_program_struct*  gl_prog_gradient;
     gl_program_struct*  gl_prog_tex_alpha_solid;
     gl_program_struct*  gl_prog_tex_alpha_gradient;
-    gl_program_struct*  gl_prog_tex_rgb_solid;
-    gl_program_struct*  gl_prog_tex_rgb_gradient;
+    gl_program_struct*  gl_prog_tex_rgba_solid;
+    gl_program_struct*  gl_prog_tex_rgba_gradient;
 #endif
 };
 
-#define PIX_BUILTIN_FN_PARAMETERS int fn_num, int pars_num, size_t sp, pix_vm_thread* th, pix_vm* vm
+#define PIX_BUILTIN_FN_PARAMETERS int fn_num, int pars_num, PIX_SP sp, pix_vm_thread* th, pix_vm* vm
 typedef void (*pix_builtin_fn)( PIX_BUILTIN_FN_PARAMETERS );
 
 extern const char* g_pix_fn_names[];
@@ -1364,6 +1414,7 @@ int pix_vm_sv_send_event( int sv_id, int track, int note, int vel, int mod, int 
 int pix_vm_sv_get_current_line( int sv_id, pix_vm* vm );
 int pix_vm_sv_get_current_signal_level( int sv_id, int ch, pix_vm* vm );
 const char* pix_vm_sv_get_name( int sv_id, pix_vm* vm );
+int pix_vm_sv_set_name( int sv_id, char* name, pix_vm* vm );
 int pix_vm_sv_get_proj_par( int sv_id, int p, pix_vm* vm ); //0 - BPM; 1 - TPL;
 int pix_vm_sv_get_proj_len( int sv_id, int t, pix_vm* vm ); //0 - frames; 1 - lines;
 int pix_vm_sv_get_time_map( int sv_id, int start_line, int len, uint32_t* dest, int flags, pix_vm* vm );
@@ -1371,27 +1422,40 @@ int pix_vm_sv_new_module( int sv_id, char* name, char* type, int x, int y, int z
 int pix_vm_sv_remove_module( int sv_id, int mod, pix_vm* vm );
 int pix_vm_sv_connect_module( int sv_id, int src, int dst, bool disconnect, pix_vm* vm );
 int pix_vm_sv_fload_module( int sv_id, sfs_file f, int x, int y, int z, pix_vm* vm );
-int pix_vm_sv_sampler_fload( int sv_id, int mod, int slot, sfs_file f, pix_vm* vm );
+int pix_vm_sv_mod_fload( int sv_id, int modtype, int mod, int slot, sfs_file f, pix_vm* vm );
 int pix_vm_sv_get_number_of_modules( int sv_id, pix_vm* vm );
 int pix_vm_sv_find_module( int sv_id, char* name, pix_vm* vm );
 int pix_vm_sv_selected_module( int sv_id, int mod, pix_vm* vm );
 int pix_vm_sv_get_module_flags( int sv_id, int mod, pix_vm* vm );
 int* pix_vm_sv_get_module_inouts( int sv_id, int mod, bool out, int* num, pix_vm* vm );
+const char* pix_vm_sv_get_module_type( int sv_id, int mod, pix_vm* vm );
 const char* pix_vm_sv_get_module_name( int sv_id, int mod, pix_vm* vm );
+int pix_vm_sv_set_module_name( int sv_id, int mod, char* name, pix_vm* vm );
 uint32_t pix_vm_sv_get_module_xy( int sv_id, int mod, pix_vm* vm );
+int pix_vm_sv_set_module_xy( int sv_id, int mod, int x, int y, pix_vm* vm );
 COLOR pix_vm_sv_get_module_color( int sv_id, int mod, pix_vm* vm );
+int pix_vm_sv_set_module_color( int sv_id, int mod, COLOR color, pix_vm* vm );
 uint32_t pix_vm_sv_get_module_finetune( int sv_id, int mod, pix_vm* vm );
+int pix_vm_sv_set_module_finetune( int sv_id, int mod, int finetune, pix_vm* vm );
+int pix_vm_sv_set_module_relnote( int sv_id, int mod, int relative_note, pix_vm* vm );
 int pix_vm_sv_get_module_scope( int sv_id, int mod, int ch, pix_vm_container* dest_cont, int samples_to_read, pix_vm* vm );
 int pix_vm_sv_module_curve( int sv_id, int mod, int curve_num, pix_vm_container* data_cont, int len, int w, pix_vm* vm );
 int pix_vm_sv_get_module_ctl_cnt( int sv_id, int mod, pix_vm* vm );
 const char* pix_vm_sv_get_module_ctl_name( int sv_id, int mod, int ctl, pix_vm* vm );
 int pix_vm_sv_get_module_ctl_value( int sv_id, int mod, int ctl, int scaled, pix_vm* vm );
+int pix_vm_sv_set_module_ctl_value( int sv_id, int mod, int ctl, int val, int scaled, pix_vm* vm );
+int pix_vm_sv_get_module_ctl_par( int sv_id, int mod, int ctl, int scaled, int par, pix_vm* vm );
+int pix_vm_sv_new_pat( int sv_id, int clone, int x, int y, int tracks, int lines, int icon_seed, char* name, pix_vm* vm );
+int pix_vm_sv_remove_pat( int sv_id, int pat, pix_vm* vm );
 int pix_vm_sv_get_number_of_pats( int sv_id, pix_vm* vm );
 int pix_vm_sv_find_pattern( int sv_id, char* name, pix_vm* vm );
 int pix_vm_sv_get_pat( int sv_id, int pat, sunvox_pattern** out_pat_data, sunvox_pattern_info** out_pat_info, pix_vm* vm );
+int pix_vm_sv_set_pat_xy( int sv_id, int pat, int x, int y, pix_vm* vm );
+int pix_vm_sv_set_pat_size( int sv_id, int pat, int tracks, int lines, pix_vm* vm );
+int pix_vm_sv_set_pat_name( int sv_id, int pat, char* name, pix_vm* vm );
 int pix_vm_sv_pat_mute( int sv_id, int pat, int mute, pix_vm* vm );
 
-void pix_vm_call_builtin_function( int fn_num, int pars_num, size_t sp, pix_vm_thread* th, pix_vm* vm );
+void pix_vm_call_builtin_function( int fn_num, int pars_num, PIX_SP sp, pix_vm_thread* th, pix_vm* vm );
 
 PIX_CID pix_vm_new_container( PIX_CID cnum, PIX_INT xsize, PIX_INT ysize, int type, void* data, pix_vm* vm );
 void pix_vm_remove_container( PIX_CID cnum, pix_vm* vm );
@@ -1605,8 +1669,36 @@ void pix_vm_gfx_draw_triangle( pix_vm_ivertex* v1, pix_vm_ivertex* v2, pix_vm_iv
 void pix_vm_gfx_draw_triangle_zbuf( pix_vm_ivertex* v1, pix_vm_ivertex* v2, pix_vm_ivertex* v3, COLOR color, pix_vm* vm );
 void pix_vm_gfx_draw_triangle_t( PIX_FLOAT* v1f, PIX_FLOAT* v2f, PIX_FLOAT* v3f, PIX_CID cnum, COLOR color, pix_vm* vm );
 
-pix_vm_font* pix_vm_get_font_for_char( uint32_t c, pix_vm* vm );
-int pix_vm_set_font( uint32_t first_char, PIX_CID cnum, int xchars, int ychars, pix_vm* vm );
+inline pix_vm_font* pix_vm_get_font_for_char( uint32_t c, pix_vm* vm )
+{
+    for( int n = 0; n < vm->fonts_num; n++ )
+    {
+        pix_vm_font* font = &vm->fonts[ n ];
+        if( (unsigned)font->font < (unsigned)vm->c_num )
+        {
+            if( c >= font->first && c <= font->last )
+            {
+        	return font;
+            }
+        }
+    }
+    return NULL;
+}
+int pix_vm_set_font(
+    uint32_t first_char,
+    uint32_t last_char,
+    PIX_CID cnum,
+    int xchars,
+    int ychars,
+    int char_xsize,
+    int char_ysize,
+    int char_xsize2,
+    int char_ysize2,
+    int grid_xoffset,
+    int grid_yoffset,
+    int grid_cell_xsize,
+    int grid_cell_ysize,
+    pix_vm* vm );
 
 PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm );
 int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int par1, pix_vm* vm );
@@ -1627,8 +1719,8 @@ void pix_vm_update_gl_texture_data( PIX_CID cnum, pix_vm* vm );
 // LEVEL 2. Pixilang compiler (text source -> virtual code)
 //
 
-int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base_path, pix_vm* vm );
-int pix_compile( const char* name, pix_vm* vm );
+//Load *.pixicode file or compile *.pixi source file
+int pix_load( const char* name, pix_vm* vm );
 
 //
 // LEVEL X. Symbol table

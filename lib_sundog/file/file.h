@@ -79,27 +79,32 @@ enum sfs_fd_type
     SFS_FILE_IN_MEMORY,
 };
 
-enum sfs_file_type
+//File format ID:
+enum sfs_file_fmt
 {
-    SFS_FILE_TYPE_UNKNOWN = 0,
-    SFS_FILE_TYPE_WAVE,
-    SFS_FILE_TYPE_AIFF,
-    SFS_FILE_TYPE_OGG,
-    SFS_FILE_TYPE_MP3,
-    SFS_FILE_TYPE_FLAC,
-    SFS_FILE_TYPE_MIDI,
-    SFS_FILE_TYPE_SUNVOX,
-    SFS_FILE_TYPE_SUNVOXMODULE,
-    SFS_FILE_TYPE_XM,
-    SFS_FILE_TYPE_MOD,
-    SFS_FILE_TYPE_JPEG,
-    SFS_FILE_TYPE_PNG,
-    SFS_FILE_TYPE_GIF,
-    SFS_FILE_TYPE_AVI,
-    SFS_FILE_TYPE_MP4,
-    SFS_FILE_TYPE_ZIP,
-    SFS_FILE_TYPE_PIXICONTAINER,
-    SFS_FILE_TYPES,
+    //Audio:
+    SFS_FILE_FMT_UNKNOWN = 0,
+    SFS_FILE_FMT_WAVE,
+    SFS_FILE_FMT_AIFF,
+    SFS_FILE_FMT_OGG,
+    SFS_FILE_FMT_MP3,
+    SFS_FILE_FMT_FLAC,
+    SFS_FILE_FMT_MIDI,
+    SFS_FILE_FMT_SUNVOX,
+    SFS_FILE_FMT_SUNVOXMODULE,
+    SFS_FILE_FMT_XM,
+    SFS_FILE_FMT_MOD,
+    //Image:
+    SFS_FILE_FMT_JPEG,
+    SFS_FILE_FMT_PNG,
+    SFS_FILE_FMT_GIF,
+    //Video:
+    SFS_FILE_FMT_AVI,
+    SFS_FILE_FMT_MP4,
+    //Other:
+    SFS_FILE_FMT_ZIP,
+    SFS_FILE_FMT_PIXICONTAINER,
+    SFS_FILE_FMTS,
 };
 
 struct sfs_fd_struct
@@ -149,11 +154,6 @@ int sfs_copy_file( const char* dest, const char* src );
 int sfs_copy_files( const char* dest, const char* src, const char* mask, const char* with_str_in_filename, bool move ); //Return value: number of files copied/moved; dest/src: "somedir/"; mask: "xm/mod/it" or NULL
 void sfs_remove_support_files( const char* prefix ); //Remove the app support files from the 2:/ ; prefix example: ".sunvox_"
 
-sfs_file_type sfs_get_file_type( const char* filename, sfs_file f );
-const char* sfs_get_mime_type( sfs_file_type type );
-const char* sfs_get_extension( sfs_file_type type );
-int sfs_get_clipboard_type( sfs_file_type type );
-
 //
 // Searching files
 //
@@ -199,6 +199,48 @@ struct sfs_find_struct
 int sfs_find_first( sfs_find_struct* ); //Return values: 0 - no files
 int sfs_find_next( sfs_find_struct* ); //Return values: 0 - no files
 void sfs_find_close( sfs_find_struct* );
+
+//
+// File format
+//
+
+sfs_file_fmt sfs_get_file_format( const char* filename, sfs_file f ); //get file format ID
+const char* sfs_get_mime_type( sfs_file_fmt fmt );
+const char* sfs_get_extension( sfs_file_fmt fmt );
+int sfs_get_clipboard_type( sfs_file_fmt fmt );
+
+//
+// Helper functions for reading and writing various file formats
+//
+
+struct simage_desc; //misc.h
+
+enum sfs_jpeg_enc_subsampling
+{
+    JE_Y_ONLY, //Y (grayscale) only
+    JE_H1V1, //YCbCr, no subsampling (H1V1, YCbCr 1x1x1, 3 blocks per MCU)
+    JE_H2V1, //YCbCr, H2V1 subsampling (YCbCr 2x1x1, 4 blocks per MCU)
+    JE_H2V2, //YCbCr, H2V2 subsampling (YCbCr 4x1x1, 6 blocks per MCU, very common)
+};
+
+class sfs_jpeg_enc_params : public smem_wrapper
+{
+public:
+    int				quality; //1-100, higher is better
+    sfs_jpeg_enc_subsampling	subsampling;
+    bool			two_pass_flag;
+    sfs_jpeg_enc_params()
+    {
+	quality = 85;
+	subsampling = JE_H2V2;
+	two_pass_flag = 0;
+    };
+};
+
+int sfs_load_jpeg( const char* filename, sfs_file f, simage_desc* img );
+int sfs_save_jpeg( const char* filename, sfs_file f, simage_desc* img, sfs_jpeg_enc_params* pars );
+
+int sfs_load_png( const char* filename, sfs_file f, simage_desc* img );
 
 //
 // Other

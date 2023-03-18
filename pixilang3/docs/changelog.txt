@@ -1,3 +1,23 @@
+v3.8.3b (15 mar 2023):
+* updated SunVox engine (2.1c);
+* bug fixes.
+v3.8.3 (27 feb 2023):
+* macOS 10.9 support has been dropped; now the minimum is 10.13;
+* file Wi-Fi web server is now also available on Android;
+* new function: sprintf2($str,$str_offset,$no_null_term,$format);
+* new function: get_proplist($pixi) - get a list (array of strings) of properties for the specified container;
+* new function: remove_proplist($list) - remove the list of properties;
+* num2str(): new optional parameters: str_offset (offset within the string), no_null_term (no NULL terminator at the end);
+* str2num(): new optional parameters: str_offset (offset within the string), len (length of substring with number);
+* set_font(): new optional parameters: last_char, char_xsize, char_ysize, char_xsize2, char_ysize2, grid_xoffset, grid_yoffset, grid_cell_xsize, grid_cell_ysize; see graphics/fonts2.pixi;
+* more correct OpenGL coordinate system: XY offset 0.375 removed from the window manager transformation matrix; 0.5 is added to the XY coordinates of dot() and line() to point exactly to the center of the pixel;
+  in rare cases, this leads to an undesirable displacement of textures (pictures, fonts) by one pixel; to avoid such a problem, follow the following rules:
+  * avoid odd window height/width;
+  * use integer division to calculate top left corner: -WINDOW_XSIZE div 2, -WINDOW_YSIZE div 2;
+* new container flag: GL_NPOT - set it if you want to use OpenGL texture (inside the container) whose dimensions are not limited to a power of two; on iOS this flag can only be enabled in conjunction with GL_NO_XREPEAT | GL_NO_YREPEAT;
+* new defines PIXI_TIMERS_NUM, PIXI_FONTS_NUM; app options (g_app_options[]) pixi_timers_num, pixi_fonts_num; pixilang_config.ini options pixi_timers_num, pixi_fonts_num;
+* updated SunVox engine (2.1c).
+* bug fixes.
 v3.8.2b (5 mar 2022):
 * updated SunVox engine (2.0e).
 v3.8.2 (7 feb 2022):

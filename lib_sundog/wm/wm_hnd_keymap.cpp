@@ -1,7 +1,7 @@
 /*
     wm_hnd_keymap.cpp
     This file is part of the SunDog engine.
-    Copyright (C) 2014 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2014 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -29,74 +29,6 @@ struct keymap_data
     int capture_scancode;
 };
 
-char g_ascii_names[ 128 * 2 ];
-
-const char* get_key_name( int key )
-{
-    const char* rv = 0;
-    if( key > ' ' && key <= '~' )
-    {
-	if( g_ascii_names[ '0' * 2 ] != '0' )
-	{
-	    for( int i = 0; i < 128; i++ )
-	    {
-		int c = i;
-		if( i >= 0x61 && i <= 0x7A ) c -= 0x20;
-		g_ascii_names[ i * 2 ] = c;
-		g_ascii_names[ i * 2 + 1 ] = 0;
-	    }
-	}
-	return (const char*)&g_ascii_names[ key * 2 ];
-    }
-    switch( key )
-    {
-	case KEY_BACKSPACE: rv = "Backspace"; break;
-	case KEY_TAB: rv = "Tab"; break;
-	case KEY_ENTER: rv = "Enter"; break;
-	case KEY_ESCAPE: rv = "Escape"; break;
-	case KEY_SPACE: rv = "Space"; break;
-	case KEY_F1: rv = "F1"; break;
-	case KEY_F2: rv = "F2"; break;
-	case KEY_F3: rv = "F3"; break;
-	case KEY_F4: rv = "F4"; break;
-	case KEY_F5: rv = "F5"; break;
-	case KEY_F6: rv = "F6"; break;
-	case KEY_F7: rv = "F7"; break;
-	case KEY_F8: rv = "F8"; break;
-	case KEY_F9: rv = "F9"; break;
-	case KEY_F10: rv = "F10"; break;
-	case KEY_F11: rv = "F11"; break;
-	case KEY_F12: rv = "F12"; break;
-	case KEY_UP: rv = "Up"; break;
-	case KEY_DOWN: rv = "Down"; break;
-	case KEY_LEFT: rv = "Left"; break;
-	case KEY_RIGHT: rv = "Right"; break;
-	case KEY_INSERT: rv = "Insert"; break;
-	case KEY_DELETE: rv = "Delete"; break;
-	case KEY_HOME: rv = "Home"; break;
-	case KEY_END: rv = "End"; break;
-	case KEY_PAGEUP: rv = "PageUp"; break;
-	case KEY_PAGEDOWN: rv = "PageDown"; break;
-	case KEY_CAPS: rv = "CapsLock"; break;
-	case KEY_SHIFT: rv = "Shift"; break;
-	case KEY_CTRL: rv = "Ctrl"; break;
-	case KEY_ALT: rv = "Alt"; break;
-	case KEY_MENU: rv = "Menu"; break;
-	case KEY_CMD: rv = "Cmd"; break;
-	case KEY_FN: rv = "Fn"; break;
-	case KEY_MIDI_NOTE:
-	case KEY_MIDI_CTL:
-	case KEY_MIDI_NRPN:
-	case KEY_MIDI_RPN:
-	case KEY_MIDI_PROG:
-	    rv = "MIDI: "; 
-	    break;
-	default:
-	    break;
-    }
-    return rv;
-}
-
 void keymap_refresh_shortcut_info( keymap_data* data )
 {
     window_manager* wm = data->win->wm;
@@ -119,7 +51,7 @@ void keymap_refresh_shortcut_info( keymap_data* data )
 	for( int i = 0; i < KEYMAP_ACTION_KEYS; i++ )
 	{
 	    sundog_keymap_key* k = keymap_get_key( 0, 0, action_num, i, wm );
-	    if( k == 0 ) continue;
+	    if( !k ) continue;
 	    char* name = &data->shortcut_names[ i * SHORTCUT_NAME_SIZE ];
 	    name[ 0 ] = 0;
 	    bool n = 0;

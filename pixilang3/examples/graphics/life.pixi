@@ -6,10 +6,17 @@ xsize = get_xsize( scr )
 ysize = get_ysize( scr )
 size = get_size( scr )
 
-clear()
-fbox( -8, -1000, 2, 2000 )
+clear( BLACK )
+fbox( -8, -1000, 2, 2000, WHITE )
+
+xx = -xsize div 2 - 32
 
 start:
+
+dot( xx, 0 )
+dot( xx + 1, 0 )
+dot( xx + 2, 0 )
+xx + 3
 
 i = 0 while( i < size )
 {

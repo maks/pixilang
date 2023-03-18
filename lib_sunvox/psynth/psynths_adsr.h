@@ -1,6 +1,6 @@
 #pragma once
 
-#define ADSR_CURVE_TYPES 	6
+#define ADSR_CURVE_TYPES 	12
 #define ADSR_SUSTAIN_MODES	3
 #define ADSR_SMOOTH_MODES	4
 

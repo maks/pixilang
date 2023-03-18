@@ -1,4 +1,4 @@
-MIDI_IN_DEVICE = "UAC-2 MIDI 1"
+MIDI_IN_DEVICE = "nanoKEY Studio nanoKEY Studio _"
 
 //
 //
@@ -43,7 +43,7 @@ next_device:
 	    if evt_size > 0 
 	    {
 		evt_time = midi_get_event_time( mc, p )
-		sprintf( ts, "EVT. t:%d. data:", evt_time )
+		sprintf( ts, "EVT. t:%x. data:", evt_time )
 		fputs( ts )
 		i = 0 while( i < evt_size )
 		{

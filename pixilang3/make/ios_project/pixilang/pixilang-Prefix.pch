@@ -22,6 +22,3 @@
 #define NATIVE_SCREEN_HIRES
 #define PS_STYPE_FLOAT32
 #define SUNVOX_LIB
-
-//For lib_gif:
-#include "lib_gif/config.h"

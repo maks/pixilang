@@ -42,7 +42,7 @@ struct pixilang_window_data
     WINDOWPTR this_window;
     pix_vm* vm; //Pixilang virtual machine
     int status;
-    sundog_image* screen_image;
+    sdwm_image* screen_image;
     int timer;
     bool sundog_ui_request_handling;
     
@@ -158,6 +158,7 @@ void pix_vm_draw_screen( WINDOWPTR win, bool draw_changes )
 		gl_program_reset( wm );
 		smem_copy( vm->gl_wm_transform, wm->gl_projection_matrix, sizeof( vm->gl_wm_transform ) );
     		matrix_4x4_translate( (int)( vm->vars[ PIX_GVAR_WINDOW_XSIZE ].i * vm->pixel_size / 2 + win->screen_x ), (int)( vm->vars[ PIX_GVAR_WINDOW_YSIZE ].i * vm->pixel_size / 2 + win->screen_y ), 0, vm->gl_wm_transform );
+    		//matrix_4x4_translate( (float)vm->vars[ PIX_GVAR_WINDOW_XSIZE ].i * vm->pixel_size / 2 + win->screen_x, (float)vm->vars[ PIX_GVAR_WINDOW_YSIZE ].i * vm->pixel_size / 2 + win->screen_y, 0, vm->gl_wm_transform );
 		if( vm->pixel_size != 1 )
     		    matrix_4x4_scale( vm->pixel_size, vm->pixel_size, 1, vm->gl_wm_transform );
     		pix_vm_gl_program_reset( vm );
@@ -275,7 +276,7 @@ void pix_vm_draw_screen( WINDOWPTR win, bool draw_changes )
 	    else
 	    {
 	        wbd_lock( win );
-	        sundog_image_scaled img;
+	        sdwm_image_scaled img;
 	        img.img = data->screen_image;
 	        img.src_x = screen_change_x << IMG_PREC;
 	        img.src_y = screen_change_y << IMG_PREC;
@@ -310,7 +311,7 @@ void pix_vm_draw_screen( WINDOWPTR win, bool draw_changes )
 	        draw_frect( x + sxsize, 0, win->xsize - ( x + sxsize ), win->ysize, win->color, wm );
 	        draw_frect( x, 0, sxsize, y, win->color, wm );
     	        draw_frect( x, y + sysize, sxsize, win->ysize - ( y + sysize ), win->color, wm );
-	        sundog_image_scaled img;
+	        sdwm_image_scaled img;
 	        img.img = data->screen_image;
 	    	img.src_x = 0;
 	    	img.src_y = 0;
@@ -379,12 +380,51 @@ static void pixilang_remove_prog_name( pixilang_window_data* data )
     data->prog_name_alloc = false;
 }
 
+void pixilang_timer( void* user_data, sundog_timer* t, window_manager* wm );
+
+int pixilang_error_dialog_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    pixilang_window_data* data = (pixilang_window_data*)user_data;
+    if( data->no_program_selection_dialog )
+    {
+	//Exit:
+	wm->exit_request = 1;
+    }
+    else
+    {
+	//Restart:
+	data->timer = add_timer( pixilang_timer, data, 0, wm );
+    }
+    return 1;
+}
+
+void pixilang_show_error( pixilang_window_data* data, int err_code, window_manager* wm )
+{
+    remove_timer( data->timer, wm );
+    data->timer = -1;
+    WINDOWPTR win = NULL;
+    char* str = data->vm->compiler_errors;
+    if( str )
+    {
+        win = dialog_open( NULL, str, wm_get_string( STR_WM_CLOSE ), 0, wm );
+        if( win )
+        {
+    	    set_handler( win->childs[ 0 ], pixilang_error_dialog_handler, data, wm );
+	}
+    }
+    if( !win )
+    {
+	slog( "pix_load() error %d\n", err_code );
+	pixilang_error_dialog_handler( data, NULL, wm );
+    }
+}
+
 void pixilang_timer( void* user_data, sundog_timer* t, window_manager* wm )
 {
     pixilang_window_data* data = (pixilang_window_data*)user_data;
     WINDOWPTR win = data->this_window;
     pix_vm* vm = data->vm;
-    
+
     switch( data->status )
     {
 	case pix_status_none:
@@ -427,7 +467,7 @@ void pixilang_timer( void* user_data, sundog_timer* t, window_manager* wm )
 		    data->vm = (pix_vm*)smem_new( sizeof( pix_vm ) );
 		    smem_zero( data->vm );
 		    pix_vm_init( data->vm, win );
-		    int cres = pix_compile( data->prog_name, data->vm );
+		    int cres = pix_load( data->prog_name, data->vm );
 		    if( cres == 0 )
 		    {
 			if( data->save_code_request )
@@ -485,9 +525,9 @@ void pixilang_timer( void* user_data, sundog_timer* t, window_manager* wm )
 			pix_vm_run( 0, 1, 0, PIX_VM_CALL_MAIN, data->vm );
 			data->status = pix_status_working;
 		    }
-		    else
+		    if( cres > 0 )
 		    {
-			if( data->no_program_selection_dialog ) wm->exit_request = 1;
+			pixilang_show_error( data, cres, wm );
 		    }
 		}
 

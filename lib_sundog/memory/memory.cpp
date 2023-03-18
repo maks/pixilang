@@ -1,8 +1,15 @@
 /*
     memory.cpp - memory management (thread-safe)
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
+*/
+
+/*
+    Why use this memory manager instead of new/delete or malloc/free?
+    1. Memory usage monitoring.
+    2. Control of memory leaks.
+    3. Ability to get the size of a simple block of memory (in places where С++ classes are not required).
 */
 
 #include "sundog.h"
@@ -114,8 +121,15 @@ void* smem_new2( size_t size, const char* name )
 	m->size = size;
 #ifdef SMEM_USE_NAMES
 	char* mname = (char*)m->name;
-	for( int np = 0; np < SMEM_MAX_NAME_SIZE - 1; np++ ) { mname[ np ] = name[ np ]; if( name[ np ] == 0 ) break; }
+	int np = 0;
+	for( ; np < SMEM_MAX_NAME_SIZE - 1; np++ ) { mname[ np ] = name[ np ]; if( name[ np ] == 0 ) break; }
 	mname[ SMEM_MAX_NAME_SIZE - 1 ] = 0;
+	if( name[ np ] )
+	{
+	    while( name[ np + 1 ] ) np++;
+	    mname[ SMEM_MAX_NAME_SIZE - 2 ] = name[ np ];
+	    mname[ SMEM_MAX_NAME_SIZE - 3 ] = '-';
+	}
 #endif
 
 #ifndef SMEM_FAST_MODE
@@ -323,7 +337,6 @@ void* smem_resize2( void* ptr, size_t new_size ) //With zero padding
 
 void* smem_copy_d( void* dest, void* src, size_t dest_offset, size_t size )
 {
-    if( dest == NULL ) return NULL;
     if( src == NULL ) return dest;
     if( size == 0 ) return dest;
     size_t dest_size = smem_get_size( dest );
@@ -433,12 +446,12 @@ int smem_strcat( char* dest, size_t dest_size, const char* src )
 
 char* smem_strcat_d( char* dest, const char* src )
 {
-    if( dest == NULL ) return NULL;
     if( src == NULL ) return dest;
+    size_t src_len = smem_strlen( src );
+    if( src_len == 0 ) return dest;
+    if( dest == NULL ) return( smem_strdup( src ) );
     size_t dest_size = smem_get_size( dest );
     size_t dest_len = smem_strlen( dest );
-    size_t src_len = smem_strlen( src );
-    if( dest_size == 0 || src_len == 0 ) return dest;
     if( dest_len + src_len + 1 > dest_size )
     {
 	dest = (char*)smem_resize( dest, dest_len + src_len + 64 );

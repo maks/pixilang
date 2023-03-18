@@ -1,7 +1,7 @@
 /*
     wm_unix_sdl.h - platform-dependent module : SDL
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -639,9 +639,11 @@ int device_start( const char* name, int xsize, int ysize, window_manager* wm )
     while( 1 )
     {
 	if( !dd ) break;
-	
-	if( XInitThreads() == 0 ) slog( "XInitThreads failed\n" );
-    
+
+#ifdef SDL12
+	//if( XInitThreads() == 0 ) slog( "XInitThreads failed\n" ); //Required for OpenGL?
+#endif
+
 	wm->prev_frame_time = 0;
 	wm->frame_len = 1000 / wm->max_fps;
 	wm->ticks_per_frame = stime_ticks_per_second_hires() / wm->max_fps;
@@ -947,7 +949,7 @@ void device_draw_image(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
 }

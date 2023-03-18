@@ -19,12 +19,13 @@ uint64_t convert_sundog_ticks_to_mach_absolute_time( ticks_hr_t t, int tick_type
 int stime_global_init( void );
 int stime_global_deinit( void );
 #define stime_ticks_per_second() (ticks_t)(1000)
+inline ticks_t stime_ms_to_ticks( int ms ) { return ms; }
 void stime_ticks_reset( void );
 ticks_t stime_ticks( void );
 
 //The following functions can be used outside the SunDog engine:
 
-stime_t stime_time( void );
+stime_t stime_time( void ); //Current calendar time in system dependent units
 int64_t stime_time_diff_sec( stime_t t1, stime_t t2 ); //t1-t2 in seconds
 uint stime_year( void );
 uint stime_month( void ); //from 1

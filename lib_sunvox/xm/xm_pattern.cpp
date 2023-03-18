@@ -1,6 +1,6 @@
 /*
 This file is part of the SunVox library.
-Copyright (C) 2007 - 2022 Alexander Zolotov <nightradio@gmail.com>
+Copyright (C) 2007 - 2023 Alexander Zolotov <nightradio@gmail.com>
 WarmPlace.ru
 
 MINIFIED VERSION
@@ -30,15 +30,11 @@ IN THE SOFTWARE.
    
 #include "sundog.h"
 #include "xm.h"
- void xm_new_pattern( uint16_t num, uint16_t rows, uint16_t channels, xm_song* song ) { if( !song ) return;
- if( num >= MAX_XM_PATTERNS ) return;
- xm_pattern* pat;
-  pat = (xm_pattern*)smem_znew( sizeof( xm_pattern ) );
-
-  song->patterns[ num ] = pat; 
- pat->rows = rows;  pat->channels = channels; pat->data_size = rows * channels * sizeof( xm_note );  
-  pat->pattern_data = (xm_note*)smem_znew( pat->data_size ); }  void xm_remove_pattern( uint16_t num, xm_song* song ) { if( !song ) return; if( num >= MAX_XM_PATTERNS ) return;  xm_pattern* pat = song->patterns[ num ];  if( pat )
- { smem_free( pat->pattern_data );
- pat->pattern_data = NULL; smem_free( pat );
- } song->patterns[ num ] = 0; }
+ void xm_new_pattern( uint16_t num, uint16_t rows, uint16_t channels, xm_song* song )
+{ if( !song ) return; if( num >= MAX_XM_PATTERNS ) return;  xm_pattern* pat;   pat = (xm_pattern*)smem_znew( sizeof( xm_pattern ) ); 
+  song->patterns[ num ] = pat;  pat->rows = rows;  pat->channels = channels; pat->data_size = rows * channels * sizeof( xm_note );  
+  pat->pattern_data = (xm_note*)smem_znew( pat->data_size );
+}  void xm_remove_pattern( uint16_t num, xm_song* song ) { if( !song ) return; if( num >= MAX_XM_PATTERNS ) return; 
+ xm_pattern* pat = song->patterns[ num ]; 
+ if( pat ) { smem_free( pat->pattern_data ); pat->pattern_data = NULL; smem_free( pat ); } song->patterns[ num ] = 0; }
 

@@ -1,7 +1,7 @@
 /*
     main.cpp - SunDog engine main()
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -510,12 +510,8 @@ int APIENTRY WinMain( HINSTANCE hCurrentInst, HINSTANCE hPreviousInst, LPSTR lps
 #endif
 
 #ifdef OS_WINCE
-#ifdef SUNVOX_GUI
-//SunVox, no zlib, no errno
-int errno = 0;
-#else
-//Other apps with zlib (errno is defined in zutil)
-#endif
+//int errno = 0;
+//(errno is defined in zutil)
 WCHAR g_window_name[ 256 ];
 extern WCHAR* className; //defined in window manager (wm_wince.h)
 int WINAPI WinMain( HINSTANCE hCurrentInst, HINSTANCE hPreviousInst, LPWSTR lpszCmdLine, int nCmdShow )

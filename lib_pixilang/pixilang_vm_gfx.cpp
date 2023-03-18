@@ -1,7 +1,7 @@
 /*
     pixilang_vm_gfx.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -703,7 +703,7 @@ void pix_vm_gfx_draw_container(
         if( gl->texture_format == GL_ALPHA )
     	    p = vm->gl_prog_tex_alpha_solid;
 	else
-    	    p = vm->gl_prog_tex_rgb_solid;
+    	    p = vm->gl_prog_tex_rgba_solid;
     	if( vm->gl_user_defined_prog ) p = vm->gl_user_defined_prog;
         if( vm->gl_current_prog != p )
         {
@@ -1441,7 +1441,7 @@ void pix_vm_gfx_draw_text(
     {
 	if( transp == 0 ) return;
     }
-    
+
     //UTF8 -> UTF32:
     size_t len = 0;
     uint32_t c32;
@@ -1453,7 +1453,7 @@ void pix_vm_gfx_draw_text(
 	str += size;
 	str_size -= size;
 	len++;
-	if( vm->text == 0 ) 
+	if( !vm->text ) 
 	{
 	    vm->text = (uint32_t*)smem_new( sizeof( uint32_t ) );
 	}
@@ -1466,7 +1466,7 @@ void pix_vm_gfx_draw_text(
 		vm->text = (uint32_t*)smem_resize2( vm->text, ( old_size * 2 ) * sizeof( uint32_t ) );
 	    }
 	}
-	if( vm->text == 0 ) return;
+	if( !vm->text ) return;
 	vm->text[ len - 1 ] = c32;
 	if( str_size == 0 ) break;
     }
@@ -1499,11 +1499,7 @@ check_again:
 		pix_vm_font* font = pix_vm_get_font_for_char( ' ', vm );
 		if( font )
 		{
-		    pix_vm_container* cont = vm->c[ font->font ];
-		    if( cont )
-		    {
-			space_char_ysize = cont->ysize / font->ychars;
-		    }
+		    space_char_ysize = font->char_ysize;
 		}
 	    }
 	    if( space_char_ysize > line_ysize ) line_ysize = space_char_ysize;
@@ -1548,12 +1544,8 @@ check_again:
 	    int char_ysize = 0;
 	    if( font )
 	    {
-		pix_vm_container* cont = vm->c[ font->font ];
-		if( cont )
-		{
-		    char_xsize = cont->xsize / font->xchars;
-		    char_ysize = cont->ysize / font->ychars;
-		}
+		char_xsize = font->char_xsize;
+		char_ysize = font->char_ysize;
 	    }
 	    if( max_xsize > 0 )
 	    {
@@ -1623,11 +1615,11 @@ check_again:
 	lines_xsize = 0;
 	lines_ysize = 0;
     }
-    
+
     //Save the bounds:
     if( out_xsize ) *out_xsize = lines_xsize;
     if( out_ysize ) *out_ysize = lines_ysize;
-    
+
     //Draw:
     if( transp && dont_draw == 0 )
     {
@@ -1637,12 +1629,14 @@ check_again:
 	{
 	    PIX_FLOAT line_x;
 	    PIX_FLOAT line_y;
-	    line_y = y - (PIX_FLOAT)lines_ysize / 2; //CENTER
+	    //line_y = y - (PIX_FLOAT)lines_ysize / 2; //CENTER
+	    line_y = y - ( lines_ysize / (int)2 ); //CENTER
 	    if( align & 1 ) line_y = y; //TOP
 	    if( align & 2 ) line_y = y - lines_ysize; //BOTTOM
 	    for( int l = 0; l < lines; l++ )
 	    {
-		line_x = x - (PIX_FLOAT)vm->text_lines[ l ].xsize / 2; //CENTER
+		//line_x = x - (PIX_FLOAT)vm->text_lines[ l ].xsize / 2; //CENTER
+		line_x = x - ( vm->text_lines[ l ].xsize / (int)2 ); //CENTER
 		if( align & 4 ) line_x = x; //LEFT
 		if( align & 8 ) line_x = x - vm->text_lines[ l ].xsize; //RIGHT
 		for( size_t i = vm->text_lines[ l ].offset; i < vm->text_lines[ l ].end; i++ )
@@ -1654,16 +1648,16 @@ check_again:
 			pix_vm_container* cont = vm->c[ font->font ];
 			if( cont )
 			{
-			    int char_xsize = cont->xsize / font->xchars;
-			    int char_ysize = cont->ysize / font->ychars;
+			    int char_xsize = font->char_xsize;
+			    int char_ysize = font->char_ysize;
 			    PIX_FLOAT yy = line_y + vm->text_lines[ l ].ysize - char_ysize;
-			    
+
 			    //Draw a char:
 			    c32 -= font->first;
-			    int char_x = ( c32 % font->xchars ) * char_xsize;
-			    int char_y = ( c32 / font->xchars ) * char_ysize;
-			    pix_vm_gfx_draw_container( font->font, line_x, yy, char_xsize, char_ysize, char_x, char_y, char_xsize, char_ysize, color, vm );
-			    
+			    int src_x = font->grid_xoffset + ( c32 % font->xchars ) * font->grid_cell_xsize;
+			    int src_y = font->grid_yoffset + ( c32 / font->xchars ) * font->grid_cell_ysize;
+			    pix_vm_gfx_draw_container( font->font, line_x, yy, char_xsize, char_ysize, src_x, src_y, font->char_xsize2, font->char_ysize2, color, vm );
+
 			    line_x += char_xsize;
 			}
 		    }

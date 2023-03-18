@@ -1,13 +1,17 @@
 /*
     net.cpp - networking
     This file is part of the SunDog engine.
-    Copyright (C) 2017 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2017 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
 #include "sundog.h"
 
 #ifdef SUNDOG_NET
+
+#ifdef OS_ANDROID
+    #include "main/android/sundog_bridge.h"
+#endif
 
 #if defined(OS_UNIX)
     #include <sys/types.h>
@@ -26,11 +30,24 @@ int snet_global_deinit( void )
     return 0;
 }
 
-int snet_get_host_info( char** host_addr, char** addr_list )
+int snet_get_host_info( sundog_engine* s, char** host_addr, char** addr_list )
 {
     int rv = -1;
 
-#if defined(OS_UNIX)
+#if defined(OS_ANDROID)
+#ifndef NOMAIN
+    //Delete it when the lower app limit will be >= API level 24 (Android 7.0)
+    char* a = android_sundog_get_host_ips( s, 0 );
+    char* alist = android_sundog_get_host_ips( s, 1 );
+    if( host_addr ) *host_addr = smem_strdup( a );
+    if( addr_list ) *addr_list = smem_strdup( alist );
+    free( a );
+    free( alist );
+    rv = 0;
+#endif
+#endif
+
+#if defined(OS_UNIX) && !defined(OS_ANDROID)
     struct ifaddrs* myaddrs = NULL;
     struct ifaddrs* ifa = NULL;
     int status = 0;
@@ -41,7 +58,7 @@ int snet_get_host_info( char** host_addr, char** addr_list )
 
     while( 1 )
     {
-        status = getifaddrs( &myaddrs );
+        status = getifaddrs( &myaddrs ); //Android minimum: API level 24 (Android 7.0)
         if( status != 0 )
         {
             slog( "getifaddrs() error %d", status );

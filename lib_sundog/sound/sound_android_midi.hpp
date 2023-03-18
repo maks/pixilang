@@ -36,6 +36,7 @@ struct device_midi_client
 struct device_midi_port
 {
     int con_index; //connection index
+    ticks_hr_t prev_timestamp; //0 - unknown
 
     COMMON_MIDIPORT_VARIABLES;
 };
@@ -48,6 +49,7 @@ sundog_midi_client* g_midi_clients[ MAX_MIDI_CLIENTS ];
 extern "C" JNIEXPORT jint JNICALL Java_nightradio_androidlib_AndroidLib_midi_1receiver_1callback( 
     JNIEnv* je, jclass jc, jint port_id, jbyteArray data_array, jint offset, jint count, jlong timestamp )
 {
+    //timestamp - relative to NOW. Must be 0 or negative!
     ticks_hr_t now = stime_ticks_hires();
 
     int client_index = ( port_id >> 8 ) & 255;
@@ -70,9 +72,24 @@ extern "C" JNIEXPORT jint JNICALL Java_nightradio_androidlib_AndroidLib_midi_1re
     jbyte* data = je->GetByteArrayElements( data_array, NULL );
     if( data )
     {
-	//slog( "%d ms\n", (int)( timestamp / ( 1000000000 / 1000 ) ) );
+	//LOGI( "%f ms", (float)timestamp / ( 1000000000 / 1000 ) );
 	//char ts[ 64 ]; for( int i = 0; i < count; i++ ) sprintf( ts + i * 3, "%02x ", ((uint8_t*)data + offset)[i] ); LOGI( "%s", ts );
-	ticks_hr_t t = now - timestamp / ( 1000000000 / (jlong)stime_ticks_per_second_hires() );
+	ticks_hr_t t = 0;
+	if( timestamp <= 0 )
+	{
+	    //if( timestamp < -1000000000 ) LOGI( "Too large timestamp %d", (int)timestamp );
+	    t = now + timestamp / ( 1000000000 / (jlong)stime_ticks_per_second_hires() );
+	    if( port->prev_timestamp )
+	    {
+		if( (signed)( t - port->prev_timestamp ) < 0 )
+		{
+		    //LOGI( "Wrong timestamp delta %d", t - port->prev_timestamp );
+		    t = port->prev_timestamp;
+		}
+	    }
+	    port->prev_timestamp = t;
+	}
+	//else LOGI( "Wrong timestamp %d", (int)timestamp );
 	write_received_midi_data( port, (uint8_t*)data + offset, count, t );
 	je->ReleaseByteArrayElements( data_array, data, 0 );
     }
@@ -174,10 +191,12 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
     if( !d ) return -1;
 
     sundog_midi_port* sd_port = c->ports[ pnum ];
-    sd_port->device_specific = smem_new( sizeof( device_midi_port ) );
+    sd_port->device_specific = smem_znew( sizeof( device_midi_port ) );
     if( !sd_port->device_specific ) return -1;
     device_midi_port* port = (device_midi_port*)sd_port->device_specific;
-    smem_zero( port );
+#ifndef NOMIDI
+    init_common_midiport_vars( port );
+#endif
 
     while( 1 )
     {

@@ -1,7 +1,7 @@
 /*
     wm_hnd.cpp - standard window handlers
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -97,7 +97,6 @@ struct divider_data
     bool push_down : 1;
     
     bool vert : 1;
-    bool time : 1;
     uint32_t flags;
     
     WINDOWPTR prev_focus_win;
@@ -194,19 +193,17 @@ int divider_handler( sundog_event* evt, window_manager* wm )
 	    data->scroll_max = wm->opt_divider_scroll_max;
 	    data->slider_size = wm->scrollbar_size;
 	    data->vert = wm->opt_divider_vertical;
-	    data->time = wm->opt_divider_with_time;
 	    data->flags = DIVIDER_FLAG_PUSHING_YAXIS;
 	    data->scroll_cur = 0;
 	    {
 		for( int a = 0; a < DIVIDER_BINDS;a++ )
 		    data->binds[ a ] = 0;
 	    }
-	    data->push_win = 0;
-	    data->prev_focus_win = 0;
+	    data->push_win = NULL;
+	    data->prev_focus_win = NULL;
 	    wm->opt_divider_scroll_min = 0;
 	    wm->opt_divider_scroll_max = 0;
 	    wm->opt_divider_vertical = false;
-	    wm->opt_divider_with_time = false;
 	    retval = 1;
 	    break;
 	case EVT_MOUSEBUTTONDOWN:
@@ -410,26 +407,6 @@ int divider_handler( sundog_event* evt, window_manager* wm )
 		COLOR color = win->color;
 		draw_frect( 0, 0, win->xsize, win->ysize, color, wm );
 
-		if( data->time )
-		{
-		    int h = stime_hours();
-		    int m = stime_minutes();
-		    char s[ 6 ];
-		    s[ 0 ] = h / 10 + '0';
-		    s[ 1 ] = h % 10 + '0';
-		    s[ 2 ] = ':';
-		    s[ 3 ] = m / 10 + '0';
-		    s[ 4 ] = m % 10 + '0';
-		    s[ 5 ] = 0;
-
-		    int x = wm->interelement_space;
-		    int y = ( win->ysize - char_y_size( wm ) ) / 2;
-		    if( win->screen_y + y < wm->root_win->screen_y + wm->scrollbar_size )
-			x += wm->scrollbar_size; //Main Menu button
-		    wm->cur_font_color = blend( wm->color2, color, 130 );
-		    draw_string( s, x, y, wm );
-		}
-
 		int cx = win->xsize / 2;
 		int cy = win->ysize / 2;
 		int s1 = wm->interelement_space;
@@ -608,7 +585,10 @@ int label_handler( sundog_event* evt, window_manager* wm )
 		    wm->cur_font_color = win->color;
 		else
 		    wm->cur_font_color = blend( wm->color2, win->parent->color, LABEL_OPACITY );
-		draw_string( str, 0, ty, wm );
+		if( data->flags & LABEL_FLAG_WORDWRAP )
+		    draw_string_wordwrap( str, 0, ty, win->xsize, NULL, NULL, false, wm );
+		else
+		    draw_string( str, 0, ty, wm );
 	    }
 	    wbd_draw( wm );
 	    wbd_unlock( wm );
@@ -909,6 +889,7 @@ int text_handler( sundog_event* evt, window_manager* wm )
 	{
 	    if( !data->active ) break;
 	    if( data->ro ) break;
+	    if( evt->key >= KEY_UNKNOWN ) break;
 
 	    int cmd = 0; //1 - cut; 2 - copy; 3 - paste;
 	    if( evt->flags & EVT_FLAG_CTRL )
@@ -1059,6 +1040,10 @@ int text_handler( sundog_event* evt, window_manager* wm )
 		}
 		else
 		{
+		    //ONLY FOR ENGLISH (USA) LAYOUT!
+		    //Fix it in future updates!
+		    //(add EVT_CHAR (with unicode symbol) instead of EVT_BUTTONDOWN/EVT_BUTTONUP?)
+		    //See SDL_TEXTEDITING and SDL_TEXTINPUT...
 		    switch( evt->key )
 		    {
 		        case '0': c = ')'; break;
@@ -1649,46 +1634,39 @@ uint32_t text_get_flags( WINDOWPTR win )
 //
 //
 
-const int g_button_autorepeat_delay[ 5 ] = { 2, 20, 70, 260, 1000 }; //timer_delay = second / delay[ stage ]
-
-void button_autorepeat_accelerate( sundog_timer* timer, ticks_t base )
+//base = click time + autorepeat_delay
+void button_autorepeat_accelerate( sundog_timer* timer, ticks_t base, window_manager* wm )
 {
-    ticks_t t = stime_ticks();
-    while( 1 )
+    ticks_t t = stime_ticks() - base;
+    if( t < stime_ticks_per_second() * 2 )
     {
-	if( t < base + stime_ticks_per_second() * 3 )
-	{
-	    timer->delay = stime_ticks_per_second() / g_button_autorepeat_delay[ 1 ];
-	    break;
-	}
-	if( t < base + stime_ticks_per_second() * 6 )
-	{
-	    timer->delay = stime_ticks_per_second() / g_button_autorepeat_delay[ 2 ];
-	    break;
-	}
-	if( t < base + stime_ticks_per_second() * 9 )
-	{
-	    timer->delay = stime_ticks_per_second() / g_button_autorepeat_delay[ 3 ];
-	    break;
-	}
-	timer->delay = stime_ticks_per_second() / g_button_autorepeat_delay[ 4 ];
-	break;
+	timer->delay = stime_ticks_per_second() / wm->mouse_autorepeat_freq;
+    }
+    else
+    {
+	float t2 = (float)t / stime_ticks_per_second(); //sec number after the base point
+	float m = powf( 3.0f, t2 / 3.0f );
+	float f = wm->mouse_autorepeat_freq * m; //Hz
+	if( f > 1000 ) f = 1000;
+	timer->delay = stime_ticks_per_second() / f;
     }
 }
 
 struct button_data
 {
     WINDOWPTR win;
-    sundog_image_scaled img1;
-    sundog_image_scaled img2;
+    sdwm_image_scaled img1;
+    sdwm_image_scaled img2;
     char* menu;
     int menu_items;
     int menu_val;
+    int prev_menu_val;
     int add_radius;
 
     uint16_t flags;
     bool pushed : 1;
     bool pen_inside : 1;
+    bool focused : 1;
 
     char* text;
     COLOR text_color;
@@ -1697,8 +1675,10 @@ struct button_data
 
     uint evt_flags;
 
-    int (*end_handler)( void*, WINDOWPTR );
-    void* end_handler_data;
+    win_action_handler2_t	begin_handler;
+    void* 			begin_handler_data;
+    win_action_handler2_t 	end_handler;
+    void* 			end_handler_data;
 
     WINDOWPTR prev_focus_win;
 
@@ -1725,7 +1705,7 @@ static bool is_button_win_valid( WINDOWPTR win )
 {
     if( !win ) return false;
     if( !win->data ) return false;
-    if( win->win_handler != button_handler) return false;
+    if( win->win_handler != button_handler ) return false;
     if( smem_get_size( win->data ) != sizeof( button_data ) ) return false;
     return true;
 }
@@ -1738,7 +1718,7 @@ static int button_menu_action_handler( void* user_data, WINDOWPTR win, window_ma
     btn_win->action_result = win->action_result;
     if( win->action_result >= 0 )
 	data->menu_val = win->action_result;
-    int (*end_handler)( void*, WINDOWPTR ) = data->end_handler;
+    win_action_handler2_t end_handler = data->end_handler;
     void* end_handler_data = data->end_handler_data;
     if( btn_win->action_handler )
 	btn_win->action_handler( btn_win->handler_data, btn_win, wm );
@@ -1764,9 +1744,8 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	    data->flags = wm->opt_button_flags;
 	    data->text_color = wm->color3;
 	    data->text_opacity = 255;
-	    data->end_handler = wm->opt_button_end_handler;
-	    data->end_handler_data = wm->opt_button_end_handler_data;
 	    data->menu_val = -1;
+	    data->prev_menu_val = -1;
 	    if( wm->control_type == TOUCHCONTROL )
 		data->add_radius = wm->scrollbar_size / 2;
 	    else
@@ -1783,8 +1762,6 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	    }
 	    smem_clear( &wm->opt_button_image1, sizeof( wm->opt_button_image1 ) );
 	    smem_clear( &wm->opt_button_image2, sizeof( wm->opt_button_image2 ) );
-	    wm->opt_button_end_handler = NULL;
-	    wm->opt_button_end_handler_data = NULL;
 	    wm->opt_button_flags = 0;
 	    retval = 1;
 	    break;
@@ -1797,6 +1774,7 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	    break;
 	case EVT_FOCUS:
 	    data->prev_focus_win = wm->prev_focus_win;
+	    data->focused = true;
 	    retval = 1;
 	    break;
 	case EVT_MOUSEBUTTONDOWN:
@@ -1807,11 +1785,16 @@ int button_handler( sundog_event* evt, window_manager* wm )
 		if( rx >= 0 && rx < win->xsize &&
 		    ry >= 0 && ry < win->ysize )
 		{
+		    data->prev_menu_val = data->menu_val;
 		    data->evt_flags = evt->flags;
 		    data->pushed = 1;
 		    data->pen_inside = 1;
 		    if( data->flags & BUTTON_FLAG_AUTOREPEAT ) BUTTON_AUTOREPEAT_START( data, button_timer );
 		    draw_window( win, wm );
+		    if( data->begin_handler )
+		    {
+			data->begin_handler( data->begin_handler_data, win );
+		    }
 		    retval = 1;
 		}
 	    }
@@ -1839,7 +1822,11 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	        int rx = evt->x - win->screen_x;
 	        int ry = evt->y - win->screen_y;
 		data->pushed = 0;
-		set_focus_win( data->prev_focus_win, wm );
+		if( data->focused ) //for correct WIN_FLAG_ALWAYS_UNFOCUSED handling
+		{
+		    set_focus_win( data->prev_focus_win, wm );
+		    data->focused = false;
+		}
 		if( rx >= -data->add_radius && rx < win->xsize + data->add_radius &&
 		    ry >= -data->add_radius && ry < win->ysize + data->add_radius )
 		{
@@ -1866,7 +1853,7 @@ int button_handler( sundog_event* evt, window_manager* wm )
 		}
 		if( data->flags & BUTTON_FLAG_AUTOREPEAT ) BUTTON_AUTOREPEAT_DEINIT( data );
 		draw_window( win, wm );
-		int (*end_handler)( void*, WINDOWPTR ) = data->end_handler;
+		win_action_handler2_t end_handler = data->end_handler;
 		void* end_handler_data = data->end_handler_data;
 		if( rx >= -data->add_radius && rx < win->xsize + data->add_radius &&
 		    ry >= -data->add_radius && ry < win->ysize + data->add_radius &&
@@ -1882,6 +1869,7 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	    }
 	    break;
 	case EVT_UNFOCUS:
+	    data->focused = false;
 	    if( data->pushed )
 	    {
 		data->pushed = 0;
@@ -1912,7 +1900,7 @@ int button_handler( sundog_event* evt, window_manager* wm )
 	    if( data->img1.img )
 	    {
 		//Draw image:
-		sundog_image_scaled* img = &data->img1;
+		sdwm_image_scaled* img = &data->img1;
 		if( data->pushed && data->img2.img )
 		    img = &data->img2;
 		wm->cur_opacity = data->text_opacity;
@@ -2020,6 +2008,24 @@ int button_handler( sundog_event* evt, window_manager* wm )
     return retval;
 }
 
+void button_set_begin_handler( WINDOWPTR win, win_action_handler2_t handler, void* handler_data )
+{
+    if( !win ) return;
+    if( win->win_handler != button_handler ) return;
+    button_data* data = (button_data*)win->data;
+    data->begin_handler = handler;
+    data->begin_handler_data = handler_data;
+}
+
+void button_set_end_handler( WINDOWPTR win, win_action_handler2_t handler, void* handler_data )
+{
+    if( !win ) return;
+    if( win->win_handler != button_handler ) return;
+    button_data* data = (button_data*)win->data;
+    data->end_handler = handler;
+    data->end_handler_data = handler_data;
+}
+
 void button_set_menu( WINDOWPTR win, const char* menu )
 {
     if( !win ) return;
@@ -2052,6 +2058,13 @@ int button_get_menu_val( WINDOWPTR win )
     if( !win ) return -1;
     button_data* data = (button_data*)win->data;
     return data->menu_val;
+}
+
+int button_get_prev_menu_val( WINDOWPTR win )
+{
+    if( !win ) return -1;
+    button_data* data = (button_data*)win->data;
+    return data->prev_menu_val;
 }
 
 void button_set_text( WINDOWPTR win, const char* text )
@@ -2105,7 +2118,7 @@ void button_set_val( WINDOWPTR win, const char* val )
     }
 }
 
-void button_set_images( WINDOWPTR win, sundog_image_scaled* img1, sundog_image_scaled* img2 )
+void button_set_images( WINDOWPTR win, sdwm_image_scaled* img1, sdwm_image_scaled* img2 )
 {
     if( !win ) return;
     button_data* data = (button_data*)win->data;
@@ -2264,8 +2277,8 @@ void draw_scrollbar_horizontal_selection( WINDOWPTR win, int x )
 
     wm->cur_opacity = 255;
 
-    sundog_polygon p;
-    sundog_vertex v[ 4 ];
+    sdwm_polygon p;
+    sdwm_vertex v[ 4 ];
     v[ 0 ].x = x;
     v[ 0 ].y = 0;
     v[ 0 ].c = wm->color3;
@@ -2297,8 +2310,8 @@ static void draw_scrollbar_vertical_selection( WINDOWPTR win, int y )
     
     wm->cur_opacity = 255;
     
-    sundog_polygon p;
-    sundog_vertex v[ 4 ];
+    sdwm_polygon p;
+    sdwm_vertex v[ 4 ];
     v[ 0 ].x = 0;
     v[ 0 ].y = y;
     v[ 0 ].c = wm->color3;
@@ -2731,13 +2744,11 @@ int scrollbar_handler( sundog_event* evt, window_manager* wm )
 	    {
 		data->vert = 1;
 		wm->opt_button_flags = BUTTON_FLAG_AUTOREPEAT | BUTTON_FLAG_FLAT;
-		wm->opt_button_end_handler = scrollbar_button_end;
-		wm->opt_button_end_handler_data = data;
 		data->but1 = new_window( STR_UP, 0, 0, 1, 1, win->color, win, button_handler, wm );
+		button_set_end_handler( data->but1, scrollbar_button_end, data );
 		wm->opt_button_flags = BUTTON_FLAG_AUTOREPEAT | BUTTON_FLAG_FLAT;
-		wm->opt_button_end_handler = scrollbar_button_end;
-		wm->opt_button_end_handler_data = data;
 		data->but2 = new_window( STR_DOWN, 0, 0, 1, 1, win->color, win, button_handler, wm );
+		button_set_end_handler( data->but2, scrollbar_button_end, data );
 		set_window_controller( data->but2, 0, wm, (WCMD)0, CEND );
 		set_window_controller( data->but2, 1, wm, CPERC, (WCMD)100, CEND );
 		set_window_controller( data->but2, 2, wm, CPERC, (WCMD)100, CEND );
@@ -2768,13 +2779,11 @@ int scrollbar_handler( sundog_event* evt, window_manager* wm )
 	    {
 		data->vert = 0;
 		wm->opt_button_flags = BUTTON_FLAG_AUTOREPEAT | BUTTON_FLAG_FLAT;
-		wm->opt_button_end_handler = scrollbar_button_end;
-		wm->opt_button_end_handler_data = data;
 		data->but1 = new_window( STR_RIGHT, 0, 0, 1, 1, win->color, win, button_handler, wm );
+		button_set_end_handler( data->but1, scrollbar_button_end, data );
 		wm->opt_button_flags = BUTTON_FLAG_AUTOREPEAT | BUTTON_FLAG_FLAT;
-		wm->opt_button_end_handler = scrollbar_button_end;
-		wm->opt_button_end_handler_data = data;
 		data->but2 = new_window( STR_LEFT, 0, 0, 1, 1, win->color, win, button_handler, wm );
+		button_set_end_handler( data->but2, scrollbar_button_end, data );
 		set_window_controller( data->but1, 0, wm, CPERC, (WCMD)100, CEND );
 		set_window_controller( data->but1, 1, wm, CPERC, (WCMD)0, CEND );
 		set_window_controller( data->but1, 3, wm, CPERC, (WCMD)100, CEND );
@@ -2860,6 +2869,7 @@ int scrollbar_handler( sundog_event* evt, window_manager* wm )
 	    break;
 	case EVT_MOUSEBUTTONDOWN:
 	case EVT_MOUSEMOVE:
+	    if( !win->visible ) break;
 	    {
         	data->evt_flags = evt->flags;
 		int inc = 0;
@@ -3050,6 +3060,7 @@ int scrollbar_handler( sundog_event* evt, window_manager* wm )
 	    }
 	    break;
 	case EVT_MOUSEBUTTONUP:
+	    if( !win->visible ) break;
 	    {
 		if( evt->key == MOUSE_BUTTON_LEFT )
 		{
@@ -3605,18 +3616,44 @@ bool scrollbar_get_editing_state( WINDOWPTR win )
 
 struct resizer_data
 {
-    bool pushed;
-    int x;
-    int y;
-    int new_x;
-    int new_y;
-    int start_x;
-    int start_y;
-    int min_x;
-    int min_y;
-    uint32_t flags;
-    WINDOWPTR prev_focus_win;
+    int8_t 		pushed; //1 - resizer; 2 - options
+    int 		x;
+    int 		y;
+    int 		new_x;
+    int 		new_y;
+    int 		start_x;
+    int 		start_y;
+    int 		min_x;
+    int 		min_y;
+    uint32_t 		flags;
+    win_action_handler_t	opt_handler;
+    void* 			opt_handler_data;
+    WINDOWPTR 		prev_focus_win;
 };
+
+static void get_resizer_ysize( WINDOWPTR win, resizer_data* data, window_manager* wm, int& opt_ysize, int& resizer_ysize )
+{
+    opt_ysize = 0;
+    if( data->flags & RESIZER_FLAG_OPTBTN )
+    {
+        /*if( win->ysize > wm->scrollbar_size * 2.5 )
+        {
+    	    opt_ysize = wm->scrollbar_size;
+	}*/
+        if( win->ysize > wm->scrollbar_size * 1.5 )
+        {
+    	    opt_ysize = win->ysize - wm->scrollbar_size * 1.5;
+    	    if( opt_ysize > wm->scrollbar_size ) opt_ysize = wm->scrollbar_size;
+	}
+        /*if( win->ysize > wm->scrollbar_size * 2 )
+        {
+    	    opt_ysize = win->ysize - wm->scrollbar_size * 2;
+    	    opt_ysize *= 2;
+    	    if( opt_ysize > wm->scrollbar_size ) opt_ysize = wm->scrollbar_size;
+	}*/
+    }
+    resizer_ysize = win->ysize - opt_ysize;
+}
 
 int resizer_handler( sundog_event* evt, window_manager* wm )
 {
@@ -3636,8 +3673,19 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 	case EVT_MOUSEBUTTONDOWN:
 	    if( evt->key == MOUSE_BUTTON_LEFT )
 	    {
+		int opt_ysize;
+		int resizer_ysize;
+		get_resizer_ysize( win, data, wm, opt_ysize, resizer_ysize );
+
+		int rx = evt->x - win->screen_x;
+	        int ry = evt->y - win->screen_y;
+
+		if( ry >= opt_ysize )
+		    data->pushed = 1;
+		else
+		    data->pushed = 2; //options
+
 		data->prev_focus_win = wm->prev_focus_win;
-		data->pushed = true;
 		data->start_x = evt->x;
 		data->start_y = evt->y;
 		data->x = win->xsize;
@@ -3651,8 +3699,23 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 	case EVT_MOUSEBUTTONUP:
 	    if( evt->key == MOUSE_BUTTON_LEFT && data->pushed )
 	    {
+		if( data->pushed == 2 )
+		{
+		    int opt_ysize;
+		    int resizer_ysize;
+		    get_resizer_ysize( win, data, wm, opt_ysize, resizer_ysize );
+
+		    int rx = evt->x - win->screen_x;
+	    	    int ry = evt->y - win->screen_y;
+	    	    
+	    	    if( rx >= 0 && rx < win->xsize && ry >= 0 && ry < opt_ysize )
+	    	    {
+			if( data->opt_handler )
+			    data->opt_handler( data->opt_handler_data, win, wm );
+	    	    }
+		}
 		set_focus_win( data->prev_focus_win, wm );
-		data->pushed = false;
+		data->pushed = 0;
 		data->x = data->new_x;
 		data->y = data->new_y;
 		draw_window( win, wm );
@@ -3662,7 +3725,7 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 	case EVT_UNFOCUS:
 	    if( data->pushed )
 	    {
-		data->pushed = false;
+		data->pushed = 0;
 		data->x = data->new_x;
 		data->y = data->new_y;
 		draw_window( win, wm );
@@ -3670,7 +3733,7 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 	    }
 	    break;
 	case EVT_MOUSEMOVE:
-	    if( evt->key == MOUSE_BUTTON_LEFT && data->pushed )
+	    if( evt->key == MOUSE_BUTTON_LEFT && data->pushed == 1 )
 	    {
 		int dx = data->start_x - evt->x;
 		int dy = data->start_y - evt->y;
@@ -3688,11 +3751,25 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 	    {
 		wbd_lock( win );
 		
-		COLOR col = win->color;
-		if( data->pushed )
-		    col = PUSHED_COLOR( col );
-		draw_frect( 0, 0, win->xsize, win->ysize, col, wm );
-		draw_updown( win->xsize / 2, win->ysize / 2, wm->color2, 0, wm );
+		int opt_ysize;
+		int resizer_ysize;
+		get_resizer_ysize( win, data, wm, opt_ysize, resizer_ysize );
+
+		COLOR col;
+		if( opt_ysize )
+		{
+		    col = blend( win->color, wm->color2, 8 );
+		    if( data->pushed ) col = PUSHED_COLOR( col );
+		    draw_frect( 0, 0, win->xsize, opt_ysize, col, wm );
+		    int cxsize = char_x_size( '+', wm );
+		    int cysize = char_y_size( wm );
+		    wm->cur_font_color = wm->color2;
+		    draw_char( '+', ( win->xsize - cxsize ) / 2, ( opt_ysize - cysize ) / 2, wm );
+		}
+		col = win->color;
+		if( data->pushed == 1 ) col = PUSHED_COLOR( col );
+		draw_frect( 0, opt_ysize, win->xsize, resizer_ysize, col, wm );
+		draw_updown( win->xsize / 2, opt_ysize + resizer_ysize / 2, wm->color2, 0, wm );
 		
 		wbd_draw( wm );
 		wbd_unlock( wm );
@@ -3710,51 +3787,43 @@ int resizer_handler( sundog_event* evt, window_manager* wm )
 
 void resizer_set_parameters( WINDOWPTR win, int min_x, int min_y )
 {
-    if( win )
-    {
-        resizer_data* data = (resizer_data*)win->data;
-        if( data )
-        {
-            data->min_x = min_x;
-            data->min_y = min_y;
-        }
-    }
+    if( !win ) return;
+    resizer_data* data = (resizer_data*)win->data;
+    if( !data ) return;
+    data->min_x = min_x;
+    data->min_y = min_y;
 }
 
 void resizer_get_vals( WINDOWPTR win, int* x, int* y )
 {
-    if( win )
-    {
-	resizer_data* data = (resizer_data*)win->data;
-	if( data )
-	{
-	    if( x ) *x = data->new_x;
-	    if( y ) *y = data->new_y;
-	}
-    }
+    if( !win ) return;
+    resizer_data* data = (resizer_data*)win->data;
+    if( !data ) return;
+    if( x ) *x = data->new_x;
+    if( y ) *y = data->new_y;
+}
+
+void resizer_set_opt_handler( WINDOWPTR win, win_action_handler_t handler, void* handler_data )
+{
+    if( !win ) return;
+    resizer_data* data = (resizer_data*)win->data;
+    if( !data ) return;
+    data->opt_handler = handler;
+    data->opt_handler_data = handler_data;
 }
 
 void resizer_set_flags( WINDOWPTR win, uint32_t flags )
 {
-    if( win )
-    {
-	resizer_data* data = (resizer_data*)win->data;
-	if( data )
-	{
-	    data->flags = flags;
-	}
-    }
+    if( !win ) return;
+    resizer_data* data = (resizer_data*)win->data;
+    if( !data ) return;
+    data->flags = flags;
 }
 
 uint32_t resizer_get_flags( WINDOWPTR win )
 {
-    if( win )
-    {
-	resizer_data* data = (resizer_data*)win->data;
-	if( data )
-	{
-	    return data->flags;
-	}
-    }
-    return 0;
+    if( !win ) return 0;
+    resizer_data* data = (resizer_data*)win->data;
+    if( !data ) return 0;
+    return data->flags;
 }

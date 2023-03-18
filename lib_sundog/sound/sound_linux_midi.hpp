@@ -386,9 +386,11 @@ int device_midi_client_open_port( sundog_midi_client* c, int pnum, const char* p
     if( d->handle == 0 ) return -1;
     
     sundog_midi_port* sd_port = c->ports[ pnum ];
-    sd_port->device_specific = smem_new( sizeof( device_midi_port ) );
+    sd_port->device_specific = smem_znew( sizeof( device_midi_port ) );
     device_midi_port* port = (device_midi_port*)sd_port->device_specific;
-    smem_zero( port );
+#ifndef NOMIDI
+    init_common_midiport_vars( port );
+#endif
     char* port_name_long = (char*)smem_new( smem_get_size( c->name ) + 1 + smem_strlen( port_name ) + 1 );
     port_name_long[ 0 ] = 0;
     smem_strcat_resize( port_name_long, c->name );

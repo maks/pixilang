@@ -12,6 +12,8 @@ PIXILANG = $(ROOT)lib_pixilang/
 APPNAME = pixilang
 
 #MAKE_WITH_OBJDUMP=true
+#CFLAGS = -O3 -ftree-vectorize -fopt-info-vec=VECTORIZED
+#CFLAGS = -O3 -ftree-vectorize -fopt-info-vec-missed=VEC.MISSED
 #CFLAGS = -g -DSMEM_USE_NAMES
 
 include $(SUNDOG)sundog_makefile.inc
@@ -29,7 +31,7 @@ include $(PIXILANG)pixilang_makefile.inc
 ##
 
 ifneq (,$(findstring linux,$(TARGET_OS)))
-ifeq ($(TARGET_OS),$(filter $(TARGET_OS),linux_sdl linux_sdl_raspberry_pi))
+ifeq ($(TARGET_OS),$(filter $(TARGET_OS),linux_sdl))
     LIBS = -lX11
     SUNDOG_DEFINES = \
 	-D$(COLOR_TYPE) \
@@ -129,7 +131,7 @@ ifeq ($(TARGET_OS),windowsce)
 install:
 	mv -f $(APPNAME).exe ../bin/wince
 endif
-SUNDOG_DEFINES += -D$(STYPE) -DSUNVOX_LIB -DSUNVOX_LIB_WITH_SAVE
+SUNDOG_DEFINES += -D$(STYPE) -DSUNVOX_LIB
 
 ##
 ## Object files

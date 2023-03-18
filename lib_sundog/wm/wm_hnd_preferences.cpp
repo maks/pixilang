@@ -1,7 +1,7 @@
 /*
     wm_hnd_preferences.cpp
     This file is part of the SunDog engine.
-    Copyright (C) 2011 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2011 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -23,7 +23,7 @@ struct prefs_data
     int correct_ysize;
 };
 
-int prefs_close_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_close_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_data* data = (prefs_data*)user_data;
 
@@ -43,7 +43,7 @@ int prefs_close_handler( void* user_data, WINDOWPTR win, window_manager* wm )
     return 0;
 }
 
-int prefs_sections_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_sections_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_data* data = (prefs_data*)user_data;
     slist_data* ldata = list_get_data( data->sections, wm );
@@ -194,8 +194,10 @@ int prefs_handler( sundog_event* evt, window_manager* wm )
 struct prefs_ui_data
 {
     WINDOWPTR win;
-    WINDOWPTR window_pars;
-    WINDOWPTR sysbars;
+    WINDOWPTR window_pars; //for some desktop systems
+    WINDOWPTR sysbars; //Android only
+    WINDOWPTR lowres; //iOS only
+    bool lowres_notice;
     WINDOWPTR maxfps;
     WINDOWPTR angle;
     WINDOWPTR control;
@@ -214,7 +216,17 @@ struct prefs_ui_data
 const int g_fps_vals[] = { 10,20,30,40,50,60,120,250,500,1000 };
 const int g_fps_vals_num = 10;
 
-void prefs_ui_reinit( WINDOWPTR win )
+#ifdef OS_ANDROID
+    #define UI_PREFS_SYSBARS 1
+#endif
+#ifdef OS_IOS
+    #define UI_PREFS_LOWRES 1
+#endif
+#if !defined(OS_APPLE) && !defined(OS_ANDROID) && !defined(OS_WINCE)
+    #define UI_PREFS_WIN_PARS 1
+#endif
+
+static void prefs_ui_reinit( WINDOWPTR win )
 {
     prefs_ui_data* data = (prefs_ui_data*)win->data;
     window_manager* wm = data->win->wm;
@@ -228,6 +240,14 @@ void prefs_ui_reinit( WINDOWPTR win )
 	    data->sysbars->color = BUTTON_HIGHLIGHT_COLOR;
 	else
 	    data->sysbars->color = wm->button_color;
+    }
+
+    if( data->lowres )
+    {
+	if( sfs_get_file_size( "2:/opt_resolution" ) )
+	    data->lowres->color = BUTTON_HIGHLIGHT_COLOR;
+	else
+	    data->lowres->color = wm->button_color;
     }
 
     if( data->maxfps )
@@ -346,30 +366,7 @@ void prefs_ui_reinit( WINDOWPTR win )
     }
 }
 
-int prefs_ui_sysbars_handler( void* user_data, WINDOWPTR win, window_manager* wm )
-{
-    prefs_ui_data* data = (prefs_ui_data*)user_data;
-
-    int val = sprofile_get_int_value( KEY_NOSYSBARS, 0, 0 );
-    if( val == 0 )
-	val = 1;
-    else
-	val = 0;
-    if( val == 0 )
-	sprofile_remove_key( KEY_NOSYSBARS, 0 );
-    else
-	sprofile_set_int_value( KEY_NOSYSBARS, val, 0 );
-    sprofile_save( 0 );
-    
-    wm->prefs_restart_request = true;
-
-    prefs_ui_reinit( data->win );
-    draw_window( data->win, wm );
-    
-    return 0;
-}    
-
-int prefs_ui_fps_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_fps_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
     
@@ -393,11 +390,11 @@ int prefs_ui_fps_handler( void* user_data, WINDOWPTR win, window_manager* wm )
     return 0;
 }
 
-int prefs_ui_angle_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_angle_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
-    int prev_angle = sprofile_get_int_value( KEY_ROTATE, 0, 0 );    
+    int prev_angle = sprofile_get_int_value( KEY_ROTATE, 0, 0 );
     int angle = win->action_result * 90;
     if( angle >= 0 && angle <= 270 )
     {
@@ -418,11 +415,14 @@ int prefs_ui_angle_handler( void* user_data, WINDOWPTR win, window_manager* wm )
     return 0;
 }
 
-int prefs_ui_control_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_control_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
     int v = win->action_result;
+    if( v == button_get_prev_menu_val( win ) ) return 0;
+    if( v < 0 || v >= 3 ) return 0;
+
     switch( v )
     {
 	case 0:
@@ -444,6 +444,10 @@ int prefs_ui_control_handler( void* user_data, WINDOWPTR win, window_manager* wm
 	    return 0;
 	    break;
     }
+    //To prevent stuck "navigation" mode (because the "selection" button may be invisible for some control types):
+    sprofile_remove_key( KEY_SUNVOX_EDIT_MODE_P, 0 );
+    sprofile_remove_key( KEY_SUNVOX_EDIT_MODE_T, 0 );
+    //
     sprofile_save( 0 );
     wm->prefs_restart_request = true;
 
@@ -453,7 +457,7 @@ int prefs_ui_control_handler( void* user_data, WINDOWPTR win, window_manager* wm
     return 0;
 }
 
-int prefs_ui_zoom_btns_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_zoom_btns_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -485,7 +489,7 @@ int prefs_ui_zoom_btns_handler( void* user_data, WINDOWPTR win, window_manager* 
     return 0;
 }
 
-int prefs_ui_dclick_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_dclick_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -513,50 +517,53 @@ int prefs_ui_dclick_handler( void* user_data, WINDOWPTR win, window_manager* wm 
     return 0;
 }
 
-int prefs_ui_color_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_color_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     colortheme_open( wm );
     return 0;
 }
 
-int prefs_ui_fonts_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_font_dialog_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
-    char* fonts_menu = (char*)smem_new( 128 );
-    fonts_menu[ 0 ] = 0;
-    smem_strcat_resize( fonts_menu, wm_get_string( STR_WM_AUTO ) );
-    for( int i = 0; i < g_fonts_count; i++ )
+    dialog_item* dlist = dialog_get_items( win );
+    if( win->action_result == 0 )
     {
-	smem_strcat_resize( fonts_menu, "\n" );
-	smem_strcat_resize( fonts_menu, g_font_names[ i ] );
-    }
+	//OK:
 
-    int font_big = sprofile_get_int_value( KEY_FONT_BIG, DEFAULT_FONT_BIG, 0 );
-    int font_med_mono = sprofile_get_int_value( KEY_FONT_MEDIUM_MONO, DEFAULT_FONT_MEDIUM_MONO, 0 );
-    int font_small = sprofile_get_int_value( KEY_FONT_SMALL, DEFAULT_FONT_SMALL, 0 );
-
-    dialog_item di[ 4 ];
-    smem_clear( &di, sizeof( di ) );
-    di[ 0 ].type = DIALOG_ITEM_POPUP;
-    di[ 0 ].str_val = (char*)wm_get_string( STR_WM_FONT_BIG );
-    di[ 0 ].int_val = font_big + 1;
-    di[ 0 ].menu = fonts_menu;
-    di[ 1 ].type = DIALOG_ITEM_POPUP;
-    di[ 1 ].str_val = (char*)wm_get_string( STR_WM_FONT_MEDIUM_MONO );
-    di[ 1 ].int_val = font_med_mono + 1;
-    di[ 1 ].menu = fonts_menu;
-    di[ 2 ].type = DIALOG_ITEM_POPUP;
-    di[ 2 ].str_val = (char*)wm_get_string( STR_WM_FONT_SMALL );
-    di[ 2 ].int_val = font_small + 1;
-    di[ 2 ].menu = fonts_menu;
-    di[ 3 ].type = DIALOG_ITEM_NONE;
-    wm->opt_dialog_items = di;
-    int d = dialog( wm_get_string( STR_WM_FONTS ), 0, wm_get_string( STR_WM_OKCANCEL ), wm );
-    if( d == 0 )
-    {
-	int font_big2 = di[ 0 ].int_val - 1;
-	int font_med_mono2 = di[ 1 ].int_val - 1;
-	int font_small2 = di[ 2 ].int_val - 1;
 	bool changed = false;
+
+#ifdef OPENGL
+	int font_upscaling = sprofile_get_int_value( KEY_NO_FONT_UPSCALE, -1, 0 ) == -1;
+	int font_fscaling = sprofile_get_int_value( "int_font_scaling", 0, 0 ) == 0;
+
+	int font_upscaling2 = dialog_get_item( dlist, 'upsc' )->int_val - 1;
+	int font_fscaling2 = dialog_get_item( dlist, 'frsc' )->int_val - 1;
+
+	if( font_upscaling != font_upscaling2 )
+	{
+	    if( font_upscaling2 < 0 || font_upscaling2 == 1 )
+		sprofile_remove_key( KEY_NO_FONT_UPSCALE, 0 );
+	    if( font_upscaling2 == 0 )
+		sprofile_set_int_value( KEY_NO_FONT_UPSCALE, 1, 0 );
+	    changed = true;
+	}
+	if( font_fscaling != font_fscaling2 )
+	{
+	    if( font_fscaling2 < 0 || font_fscaling2 == 1 )
+		sprofile_remove_key( "int_font_scaling", 0 );
+	    if( font_fscaling2 == 0 )
+		sprofile_set_int_value( "int_font_scaling", 1, 0 );
+	    changed = true;
+	}
+#endif
+
+	int font_big = sprofile_get_int_value( KEY_FONT_BIG, DEFAULT_FONT_BIG, 0 );
+	int font_med_mono = sprofile_get_int_value( KEY_FONT_MEDIUM_MONO, DEFAULT_FONT_MEDIUM_MONO, 0 );
+	int font_small = sprofile_get_int_value( KEY_FONT_SMALL, DEFAULT_FONT_SMALL, 0 );
+
+	int font_big2 = dialog_get_item( dlist, 'fbig' )->int_val - 1;
+	int font_med_mono2 = dialog_get_item( dlist, 'fmed' )->int_val - 1;
+	int font_small2 = dialog_get_item( dlist, 'fsml' )->int_val - 1;
 	if( font_med_mono != font_med_mono2 )
 	{
 	    if( font_med_mono2 == DEFAULT_FONT_MEDIUM_MONO || font_med_mono2 < 0 )
@@ -587,18 +594,125 @@ int prefs_ui_fonts_handler( void* user_data, WINDOWPTR win, window_manager* wm )
     	    sprofile_save( 0 );
     	}
     }
+    if( win->action_result == 2 )
+    {
+	//Reset:
+	dialog_get_item( dlist, 'fbig' )->int_val = DEFAULT_FONT_BIG + 1;
+	dialog_get_item( dlist, 'fmed' )->int_val = DEFAULT_FONT_MEDIUM_MONO + 1;
+	dialog_get_item( dlist, 'fsml' )->int_val = DEFAULT_FONT_SMALL + 1;
+	dialog_reinit_items( win, false );
+        draw_window( win, wm );
+	return 0;
+    }
+    return 1;
+}
+
+static int prefs_ui_fonts_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    char* fonts_menu = (char*)smem_new( 128 );
+    fonts_menu[ 0 ] = 0;
+    smem_strcat_resize( fonts_menu, wm_get_string( STR_WM_AUTO ) );
+    for( int i = 0; i < g_fonts_count; i++ )
+    {
+	smem_strcat_resize( fonts_menu, "\n" );
+	smem_strcat_resize( fonts_menu, g_font_names[ i ] );
+    }
+
+#ifdef OPENGL
+    char* upscale_menu = (char*)smem_new( 128 );
+    upscale_menu[ 0 ] = 0;
+    smem_strcat_resize( upscale_menu, wm_get_string( STR_WM_AUTO ) );
+    smem_strcat_resize( upscale_menu, "\n" );
+    smem_strcat_resize( upscale_menu, wm_get_string( STR_WM_OFF_CAP ) );
+    smem_strcat_resize( upscale_menu, "\n" );
+    smem_strcat_resize( upscale_menu, wm_get_string( STR_WM_ON_CAP ) );
+    int font_upscaling = sprofile_get_int_value( KEY_NO_FONT_UPSCALE, -1, 0 ) == -1;
+    int font_fscaling = sprofile_get_int_value( "int_font_scaling", 0, 0 ) == 0;
+#endif
+
+    int font_big = sprofile_get_int_value( KEY_FONT_BIG, DEFAULT_FONT_BIG, 0 );
+    int font_med_mono = sprofile_get_int_value( KEY_FONT_MEDIUM_MONO, DEFAULT_FONT_MEDIUM_MONO, 0 );
+    int font_small = sprofile_get_int_value( KEY_FONT_SMALL, DEFAULT_FONT_SMALL, 0 );
+
+    char* dialog_buttons = (char*)smem_new( 512 );
+    dialog_item* dlist = NULL;
+    WINDOWPTR dwin = NULL;
+    while( 1 )
+    {
+        dialog_item* di = NULL;
+
+        snprintf( dialog_buttons, smem_get_size( dialog_buttons ),
+            "OK;%s;%s",
+            wm_get_string( STR_WM_CANCEL ),
+            wm_get_string( STR_WM_RESET ) );
+
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_POPUP;
+	di->str_val = (char*)wm_get_string( STR_WM_FONT_BIG );
+	di->int_val = font_big + 1;
+	di->menu = fonts_menu;
+	di->id = 'fbig';
+
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_POPUP;
+	di->str_val = (char*)wm_get_string( STR_WM_FONT_MEDIUM_MONO );
+	di->int_val = font_med_mono + 1;
+	di->menu = fonts_menu;
+	di->id = 'fmed';
+
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_POPUP;
+	di->str_val = (char*)wm_get_string( STR_WM_FONT_SMALL );
+	di->int_val = font_small + 1;
+	di->menu = fonts_menu;
+	di->id = 'fsml';
+
+#ifdef OPENGL
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_EMPTY_LINE;
+
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_POPUP;
+	di->str_val = (char*)wm_get_string( STR_WM_FONT_UPSCALING );
+	di->int_val = font_upscaling + 1;
+	di->menu = upscale_menu;
+	di->id = 'upsc';
+
+        di = dialog_new_item( &dlist ); if( !di ) break;
+	di->type = DIALOG_ITEM_POPUP;
+	di->str_val = (char*)wm_get_string( STR_WM_FONT_FSCALING );
+	di->int_val = font_fscaling + 1;
+	di->menu = upscale_menu;
+	di->id = 'frsc';
+#endif
+
+        wm->opt_dialog_items = dlist;
+	dwin = dialog_open( wm_get_string( STR_WM_FONTS ), NULL, dialog_buttons, DIALOG_FLAG_SINGLE, wm ); //retval = decorator
+        if( !dwin ) break;
+
+	set_handler( dwin->childs[ 0 ], prefs_ui_font_dialog_handler, user_data, wm );
+        dialog_set_flags( dwin, DIALOG_FLAG_AUTOREMOVE_ITEMS );
+        dlist = NULL; //because we use DIALOG_FLAG_AUTOREMOVE_ITEMS
+
+        break;
+    }
+    smem_free( dlist );
+    smem_free( dialog_buttons );
 
     smem_free( fonts_menu );
+#ifdef OPENGL
+    smem_free( upscale_menu );
+#endif
     return 0;
 }
 
-int prefs_ui_scale_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_scale_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     ui_scale_open( wm );
     return 0;
 }
 
-int prefs_ui_virt_kbd_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_virt_kbd_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -629,17 +743,17 @@ int prefs_ui_virt_kbd_handler( void* user_data, WINDOWPTR win, window_manager* w
 
     prefs_ui_reinit( data->win );
     draw_window( data->win, wm );
-    
+
     return 0;
 }
 
-int prefs_ui_keymap_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_keymap_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     keymap_open( wm );
     return 0;
 }
 
-int prefs_ui_lang_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_lang_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -671,7 +785,7 @@ int prefs_ui_lang_handler( void* user_data, WINDOWPTR win, window_manager* wm )
     return 0;
 }
 
-int prefs_ui_hide_recent_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_hide_recent_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -687,7 +801,7 @@ int prefs_ui_hide_recent_handler( void* user_data, WINDOWPTR win, window_manager
     return 0;
 }
 
-int prefs_ui_show_hidden_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_ui_show_hidden_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_ui_data* data = (prefs_ui_data*)user_data;
 
@@ -703,7 +817,8 @@ int prefs_ui_show_hidden_handler( void* user_data, WINDOWPTR win, window_manager
     return 0;
 }
 
-int prefs_ui_window_pars_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+#ifdef UI_PREFS_WIN_PARS
+static int prefs_ui_window_pars_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     int screen_xsize = sprofile_get_int_value( KEY_SCREENX, wm->real_window_width, 0 );
     int screen_ysize = sprofile_get_int_value( KEY_SCREENY, wm->real_window_height, 0 );
@@ -755,6 +870,62 @@ int prefs_ui_window_pars_handler( void* user_data, WINDOWPTR win, window_manager
     }
     return 0;
 }
+#endif
+
+#ifdef UI_PREFS_SYSBARS
+static int prefs_ui_sysbars_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    prefs_ui_data* data = (prefs_ui_data*)user_data;
+
+    int val = sprofile_get_int_value( KEY_NOSYSBARS, 0, 0 );
+    if( val == 0 )
+	val = 1;
+    else
+	val = 0;
+    if( val == 0 )
+	sprofile_remove_key( KEY_NOSYSBARS, 0 );
+    else
+	sprofile_set_int_value( KEY_NOSYSBARS, val, 0 );
+    sprofile_save( 0 );
+    
+    wm->prefs_restart_request = true;
+
+    prefs_ui_reinit( data->win );
+    draw_window( data->win, wm );
+    
+    return 0;
+}
+#endif
+
+#ifdef UI_PREFS_LOWRES
+static int prefs_ui_lowres_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    prefs_ui_data* data = (prefs_ui_data*)user_data;
+
+    if( sfs_get_file_size( "2:/opt_resolution" ) )
+	sfs_remove_file( "2:/opt_resolution" );
+    else
+    {
+	sfs_file f = sfs_open( "2:/opt_resolution", "wb" );
+	if( f )
+	{
+	    sfs_write( "low", 1, 5, f );
+	    sfs_close( f );
+	}
+    }
+
+    if( data->lowres_notice == 0 )
+    {
+	dialog_open( NULL, wm_get_string( STR_WM_LOWRES_IOS_NOTICE ), wm_get_string( STR_WM_OK ), DIALOG_FLAG_SINGLE, wm );
+	data->lowres_notice = 1;
+    }
+
+    prefs_ui_reinit( data->win );
+    draw_window( data->win, wm );
+
+    return 0;
+}
+#endif
 
 int prefs_ui_handler( sundog_event* evt, window_manager* wm )
 {
@@ -770,54 +941,53 @@ int prefs_ui_handler( sundog_event* evt, window_manager* wm )
 	case EVT_AFTERCREATE:
 	    {
 		data->win = win;
-		
-		char ts[ 256 ];
-		int y = 0;
 
-		data->window_pars = 0;
-		data->sysbars = 0;
-#ifdef OS_ANDROID
+		char ts[ 256 ];
+
+		btn_autoalign_data aa;
+		btn_autoalign_init( &aa, wm, 0 );
+
+#ifdef UI_PREFS_WIN_PARS
+		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
+		data->window_pars = new_window( wm_get_string( STR_WM_WINDOW_PARS ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		set_handler( data->window_pars, prefs_ui_window_pars_handler, data, wm );
+		btn_autoalign_add( &aa, data->window_pars, 0 );
+#endif
+#ifdef UI_PREFS_SYSBARS
+    #ifdef OS_ANDROID
 		if( g_android_version_nums[ 0 ] >= 4 )
+    #endif
 		{
 		    wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		    data->sysbars = new_window( wm_get_string( STR_WM_HIDE_SYSTEM_BARS ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		    data->sysbars = new_window( wm_get_string( STR_WM_HIDE_SYSTEM_BARS ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		    set_handler( data->sysbars, prefs_ui_sysbars_handler, data, wm );
-		    set_window_controller( data->sysbars, 0, wm, (WCMD)0, CEND );
-		    set_window_controller( data->sysbars, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
+		    btn_autoalign_add( &aa, data->sysbars, 0 );
 		}
-#else
-    #if !defined(OS_APPLE) && !defined(OS_ANDROID) && !defined(OS_WINCE)
+#endif
+#ifdef UI_PREFS_LOWRES
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		data->window_pars = new_window( wm_get_string( STR_WM_WINDOW_PARS ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
-		set_handler( data->window_pars, prefs_ui_window_pars_handler, data, wm );
-		set_window_controller( data->window_pars, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->window_pars, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
-    #endif
+		data->lowres = new_window( wm_get_string( STR_WM_LOWRES ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		set_handler( data->lowres, prefs_ui_lowres_handler, data, wm );
+		btn_autoalign_add( &aa, data->lowres, 0 );
 #endif
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		data->scale = new_window( wm_get_string( STR_WM_UI_SCALE ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->scale = new_window( wm_get_string( STR_WM_UI_SCALE ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->scale, prefs_ui_scale_handler, data, wm );
-		if( data->window_pars || data->sysbars )
-		    set_window_controller( data->scale, 0, wm, CPERC, (WCMD)50, CEND );
-		else
-		    set_window_controller( data->scale, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->scale, 2, wm, CPERC, (WCMD)100, CEND );
+		btn_autoalign_add( &aa, data->scale, 0 );
 
-		y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
-		data->angle = 0;
 #ifdef SCREEN_ROTATE_SUPPORTED
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->angle = new_window( wm_get_string( STR_WM_UI_ROTATION ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->angle = new_window( wm_get_string( STR_WM_UI_ROTATION ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->angle, prefs_ui_angle_handler, data, wm );
 		button_set_menu( data->angle, "0\n90\n180\n270" );
-		set_window_controller( data->angle, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->angle, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
+		btn_autoalign_add( &aa, data->angle, 0 );
 #endif
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->maxfps = new_window( wm_get_string( STR_WM_MAXFPS ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->maxfps = new_window( wm_get_string( STR_WM_MAXFPS ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->maxfps, prefs_ui_fps_handler, data, wm );
 		ts[ 0 ] = 0;
 		smem_strcat( ts, sizeof( ts ), wm_get_string( STR_WM_AUTO ) );
@@ -829,124 +999,105 @@ int prefs_ui_handler( sundog_event* evt, window_manager* wm )
 		    smem_strcat( ts, sizeof( ts ), ts2 );
 		}
 		button_set_menu( data->maxfps, ts );
-		if( data->angle )
-		    set_window_controller( data->maxfps, 0, wm, CPERC, (WCMD)50, CEND );
-		else
-		    set_window_controller( data->maxfps, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->maxfps, 2, wm, CPERC, (WCMD)100, CEND );
+		btn_autoalign_add( &aa, data->maxfps, 0 );
 
-		y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
-		data->color = 0;
 		if( ( wm->prefs_flags & PREFS_FLAG_NO_COLOR_THEME ) == 0 )
 		{
 		    wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		    data->color = new_window( wm_get_string( STR_WM_COLOR_THEME ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		    data->color = new_window( wm_get_string( STR_WM_COLOR_THEME ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		    set_handler( data->color, prefs_ui_color_handler, data, wm );
-		    set_window_controller( data->color, 0, wm, (WCMD)0, CEND );
-		    set_window_controller( data->color, 2, wm, CPERC, (WCMD)100, CEND );
+		    btn_autoalign_add( &aa, data->color, 0 );
 		}
 
-		data->fonts = 0;
 		if( ( wm->prefs_flags & PREFS_FLAG_NO_FONTS ) == 0 )
 		{
 		    wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		    data->fonts = new_window( wm_get_string( STR_WM_FONTS ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		    data->fonts = new_window( wm_get_string( STR_WM_FONTS ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		    set_handler( data->fonts, prefs_ui_fonts_handler, data, wm );
-		    if( data->color )
-		    {
-			set_window_controller( data->color, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
-			set_window_controller( data->fonts, 0, wm, CPERC, (WCMD)50, CEND );
-		    }
-		    else
-		    {
-			set_window_controller( data->fonts, 0, wm, (WCMD)0, CEND );
-		    }
-		    set_window_controller( data->fonts, 2, wm, CPERC, (WCMD)100, CEND );
+		    btn_autoalign_add( &aa, data->fonts, 0 );
 		}
 
-		if( data->color || data->fonts )
-		    y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->control = new_window( wm_get_string( STR_WM_CTL_TYPE ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->control = new_window( wm_get_string( STR_WM_CTL_TYPE ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->control, prefs_ui_control_handler, data, wm );
 		button_set_menu( data->control, wm_get_string( STR_WM_CTL_TYPE_MENU ) );
-		set_window_controller( data->control, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->control, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
+		btn_autoalign_add( &aa, data->control, 0 );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->zoom_btns = new_window( wm_get_string( STR_WM_SHOW_ZOOM_BUTTONS ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->zoom_btns = new_window( wm_get_string( STR_WM_SHOW_ZOOM_BUTTONS ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->zoom_btns, prefs_ui_zoom_btns_handler, data, wm );
-		set_window_controller( data->zoom_btns, 0, wm, CPERC, (WCMD)50, CEND );
-		set_window_controller( data->zoom_btns, 2, wm, CPERC, (WCMD)100, CEND );
 		button_set_menu( data->zoom_btns, wm_get_string( STR_WM_AUTO_YES_NO_MENU ) );
+		btn_autoalign_add( &aa, data->zoom_btns, 0 );
 
 		if( wm->prefs_flags & PREFS_FLAG_NO_CONTROL_TYPE )
 		{
 		    data->control->flags |= WIN_FLAG_ALWAYS_INVISIBLE;
 		    data->zoom_btns->flags |= WIN_FLAG_ALWAYS_INVISIBLE;
 		}
-		else
-		    y += wm->text_ysize + wm->interelement_space;
+
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->dclick = new_window( wm_get_string( STR_WM_DOUBLE_CLICK_TIME ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->dclick = new_window( wm_get_string( STR_WM_DOUBLE_CLICK_TIME ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->dclick, prefs_ui_dclick_handler, data, wm );
 		ts[ 0 ] = 0;
 		smem_strcat( ts, sizeof( ts ), wm_get_string( STR_WM_AUTO ) );
 		smem_strcat( ts, sizeof( ts ), "\n100\n150\n200\n250\n300\n350\n400\n450\n500" );
 		button_set_menu( data->dclick, ts );
-		set_window_controller( data->dclick, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->dclick, 2, wm, CPERC, (WCMD)100, CEND );
-		y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_add( &aa, data->dclick, 0 );
+
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->virt_kbd = new_window( wm_get_string( STR_WM_SHOW_KBD ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->virt_kbd = new_window( wm_get_string( STR_WM_SHOW_KBD ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->virt_kbd, prefs_ui_virt_kbd_handler, data, wm );
 		button_set_menu( data->virt_kbd, wm_get_string( STR_WM_AUTO_ON_OFF_MENU ) );
-		set_window_controller( data->virt_kbd, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->virt_kbd, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
+		btn_autoalign_add( &aa, data->virt_kbd, 0 );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		data->keymap = new_window( wm_get_string( STR_WM_SHORTCUTS_SHORT ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->keymap = new_window( wm_get_string( STR_WM_SHORTCUTS_SHORT ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->keymap, prefs_ui_keymap_handler, data, wm );
-		set_window_controller( data->keymap, 0, wm, CPERC, (WCMD)50, CEND );
-		set_window_controller( data->keymap, 2, wm, CPERC, (WCMD)100, CEND );
+		btn_autoalign_add( &aa, data->keymap, 0 );
+
 		if( wm->prefs_flags & PREFS_FLAG_NO_KEYMAP )
 		{
 		    data->keymap->flags |= WIN_FLAG_ALWAYS_INVISIBLE;
-		    set_window_controller( data->virt_kbd, 2, wm, CPERC, (WCMD)100, CEND );
 		}
-		y += wm->text_ysize + wm->interelement_space;
+
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW | BUTTON_FLAG_SHOW_PREV_VALUE;
-		data->lang = new_window( wm_get_string( STR_WM_LANG ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->lang = new_window( wm_get_string( STR_WM_LANG ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->lang, prefs_ui_lang_handler, data, wm );
 		ts[ 0 ] = 0;
 		smem_strcat( ts, sizeof( ts ), wm_get_string( STR_WM_AUTO ) );
 		smem_strcat( ts, sizeof( ts ), "\nEnglish\nРусский" );
 		button_set_menu( data->lang, ts );
-		set_window_controller( data->lang, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->lang, 2, wm, CPERC, (WCMD)100, CEND );
-		y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_add( &aa, data->lang, 0 );
+
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		data->hide_recent = new_window( wm_get_string( STR_WM_HIDE_RECENT_FILES ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->hide_recent = new_window( wm_get_string( STR_WM_HIDE_RECENT_FILES ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->hide_recent, prefs_ui_hide_recent_handler, data, wm );
-		set_window_controller( data->hide_recent, 0, wm, (WCMD)0, CEND );
-		set_window_controller( data->hide_recent, 2, wm, CPERC, (WCMD)50, CSUB, (WCMD)wm->interelement_space2, CEND );
+		btn_autoalign_add( &aa, data->hide_recent, 0 );
 
 		wm->opt_button_flags = BUTTON_FLAG_LEFT_ALIGNMENT_ON_OVERFLOW;
-		data->show_hidden = new_window( wm_get_string( STR_WM_SHOW_HIDDEN_FILES ), 0, y, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
+		data->show_hidden = new_window( wm_get_string( STR_WM_SHOW_HIDDEN_FILES ), 0, 0, 1, wm->text_ysize, wm->button_color, win, button_handler, wm );
 		set_handler( data->show_hidden, prefs_ui_show_hidden_handler, data, wm );
-		set_window_controller( data->show_hidden, 0, wm, CPERC, (WCMD)50, CEND );
-		set_window_controller( data->show_hidden, 2, wm, CPERC, (WCMD)100, CEND );
-		y += wm->text_ysize + wm->interelement_space;
+		btn_autoalign_add( &aa, data->show_hidden, 0 );
+
+		btn_autoalign_next_line( &aa, BTN_AUTOALIGN_LINE_EVENLY );
 
 		prefs_ui_reinit( win );
 
-		wm->prefs_section_ysize = y;
+		wm->prefs_section_ysize = aa.y;
+
+		btn_autoalign_deinit( &aa );
 	    }
 	    retval = 1;
 	    break;
@@ -975,7 +1126,7 @@ struct prefs_svideo_data
     WINDOWPTR cam_rotate;
 };
 
-void prefs_svideo_reinit( WINDOWPTR win )
+static void prefs_svideo_reinit( WINDOWPTR win )
 {
     prefs_svideo_data* data = (prefs_svideo_data*)win->data;
     window_manager* wm = data->win->wm;
@@ -1010,7 +1161,7 @@ void prefs_svideo_reinit( WINDOWPTR win )
     }
 }
 
-int prefs_svideo_cam_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_svideo_cam_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_svideo_data* data = (prefs_svideo_data*)user_data;
 
@@ -1043,7 +1194,7 @@ int prefs_svideo_cam_handler( void* user_data, WINDOWPTR win, window_manager* wm
     return 0;
 }
 
-int prefs_svideo_cam_rotate_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_svideo_cam_rotate_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_svideo_data* data = (prefs_svideo_data*)user_data;
 
@@ -1140,14 +1291,15 @@ struct prefs_audio_data
     WINDOWPTR device;
     WINDOWPTR device_in;
     WINDOWPTR opt;
+    int opt_type; //1 - ASIO; 2 - iOS Audio Unit;
 };
 
-const char* prefs_audio_get_driver( window_manager* wm ) //with the driver name instead of AUTO
+static const char* prefs_audio_get_driver( window_manager* wm ) //with the driver name instead of AUTO
 {
     sundog_sound* snd = wm->sd->ss;
 
     const char* drv = sprofile_get_str_value( KEY_AUDIODRIVER, 0, 0 );
-    if( drv == 0 )
+    if( !drv )
     {
 	//Auto:
         if( snd && snd->initialized )
@@ -1161,41 +1313,58 @@ const char* prefs_audio_get_driver( window_manager* wm ) //with the driver name 
 	    drv = sundog_sound_get_default_driver();
 	}
     }
-    
+
     return drv;
 }
 
-void prefs_audio_reinit( WINDOWPTR win )
+static void prefs_audio_reinit( WINDOWPTR win )
 {
     prefs_audio_data* data = (prefs_audio_data*)win->data;
     window_manager* wm = data->win->wm;
     sundog_sound* snd = wm->sd->ss;
-    
+
     char ts[ 512 ];
 
     const char* cur_drv = prefs_audio_get_driver( wm );
 
-    char* drv = sprofile_get_str_value( KEY_AUDIODRIVER, 0, 0 );
-    if( smem_strstr( drv, "asio" ) )
+    char* drv = sprofile_get_str_value( KEY_AUDIODRIVER, NULL, 0 );
+    while( 1 )
     {
-	rename_window( data->opt, wm_get_string( STR_WM_ADD_OPTIONS_ASIO ) );
-	if( show_window2( data->opt ) )
-	    recalc_regions( wm );
-    }
-    else
-    {
+	data->opt_type = 0;
+#ifdef OS_WIN
+	if( smem_strstr( drv, "asio" ) )
+	{
+	    data->opt_type = 1;
+	    rename_window( data->opt, wm_get_string( STR_WM_ADD_OPTIONS_ASIO ) );
+	    if( show_window2( data->opt ) )
+		recalc_regions( wm );
+	    break;
+	}
+#endif
+#ifdef OS_IOS
+    #ifndef AUDIOUNIT_EXTENSION
+	if( !drv || smem_strstr( drv, "audiounit" ) )
+	{
+	    data->opt_type = 2;
+	    if( show_window2( data->opt ) )
+		recalc_regions( wm );
+	    break;
+	}
+    #endif
+#endif
 	if( hide_window2( data->opt ) )
 	    recalc_regions( wm );
+	break;
     }
-    if( drv == 0 )
+    if( !drv )
     {
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_DRIVER ), wm_get_string( STR_WM_AUTO ) );
     }
     else
     {
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_DRIVER ), drv );
-	char** names = 0;
-	char** infos = 0;
+	char** names = NULL;
+	char** infos = NULL;
 	int drivers = sundog_sound_get_drivers( &names, &infos );
 	if( ( drivers > 0 ) && names && infos )
 	{
@@ -1219,13 +1388,13 @@ void prefs_audio_reinit( WINDOWPTR win )
     button_set_text( data->driver, ts );
 
     char* dev = sprofile_get_str_value( KEY_AUDIODEVICE, 0, 0 );
-    if( dev == 0 )
+    if( !dev )
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_OUTPUT ), wm_get_string( STR_WM_AUTO ) );
     else
     {
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_OUTPUT ), dev );
-	char** names = 0;
-	char** infos = 0;
+	char** names = NULL;
+	char** infos = NULL;
 	int devices = sundog_sound_get_devices( cur_drv, &names, &infos, 0 );
 	if( ( devices > 0 ) && names && infos )
 	{
@@ -1252,13 +1421,13 @@ void prefs_audio_reinit( WINDOWPTR win )
     button_set_text( data->device, ts );
 
     dev = sprofile_get_str_value( KEY_AUDIODEVICE_IN, 0, 0 );
-    if( dev == 0 )
+    if( !dev )
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_INPUT ), wm_get_string( STR_WM_AUTO ) );
     else
     {
 	sprintf( ts, "%s = %s", wm_get_string( STR_WM_INPUT ), dev );
-	char** names = 0;
-	char** infos = 0;
+	char** names = NULL;
+	char** infos = NULL;
 	int devices = sundog_sound_get_devices( cur_drv, &names, &infos, 1 );
 	if( ( devices > 0 ) && names && infos )
 	{
@@ -1283,7 +1452,7 @@ void prefs_audio_reinit( WINDOWPTR win )
 	}
     }
     button_set_text( data->device_in, ts );
-    
+
     int freq = 44100;
     if( snd && snd->initialized )
         freq = snd->freq;
@@ -1302,7 +1471,7 @@ void prefs_audio_reinit( WINDOWPTR win )
     button_set_text( data->freq, ts );
 }
 
-int prefs_audio_driver_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_audio_driver_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_audio_data* data = (prefs_audio_data*)user_data;
     
@@ -1363,7 +1532,7 @@ int prefs_audio_driver_handler( void* user_data, WINDOWPTR win, window_manager* 
 	smem_free( infos );
     }
     
-    smem_free( menu );    
+    smem_free( menu );
 
     prefs_audio_reinit( data->win );
     draw_window( data->win, wm );
@@ -1371,7 +1540,7 @@ int prefs_audio_driver_handler( void* user_data, WINDOWPTR win, window_manager* 
     return 0;
 }
 
-int prefs_audio_device_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_audio_device_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_audio_data* data = (prefs_audio_data*)user_data;
     sundog_sound* snd = wm->sd->ss;
@@ -1468,7 +1637,7 @@ static const int g_sound_buf_size_table[] =
     -1
 };
 
-int prefs_audio_buf_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_audio_buf_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_audio_data* data = (prefs_audio_data*)user_data;
     sundog_sound* snd = wm->sd->ss;
@@ -1532,7 +1701,7 @@ int prefs_audio_buf_handler( void* user_data, WINDOWPTR win, window_manager* wm 
     return 0;
 }
 
-int prefs_audio_freq_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+static int prefs_audio_freq_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_audio_data* data = (prefs_audio_data*)user_data;
     
@@ -1575,53 +1744,141 @@ int prefs_audio_freq_handler( void* user_data, WINDOWPTR win, window_manager* wm
     return 0;
 }
 
-int prefs_audio_opt_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+#ifdef OS_WIN
+static int prefs_audio_opt_asio_dialog_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    dialog_item* dlist = dialog_get_items( win );
+    if( win->action_result == 0 )
+    {
+        bool changed = 0;
+        int out_ch = dialog_get_item( dlist, 'outc' )->int_val;
+    	if( sprofile_get_int_value( "audio_ch", 0, 0 ) != out_ch )
+	{
+    	    sprofile_set_int_value( "audio_ch", out_ch, 0 );
+    	    changed = 1;
+    	}
+        int in_ch = dialog_get_item( dlist, 'inpc' )->int_val;
+	if( sprofile_get_int_value( "audio_ch_in", 0, 0 ) != in_ch )
+    	{
+    	    sprofile_set_int_value( "audio_ch_in", in_ch, 0 );
+    	    changed = 1;
+    	}
+    	if( changed )
+    	{
+    	    wm->prefs_restart_request = true;
+    	    sprofile_save( 0 );
+    	}
+    }
+    return 1;
+}
+#endif
+
+#ifdef OS_IOS
+static int prefs_audio_opt_au_dialog_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    dialog_item* dlist = dialog_get_items( win );
+    if( win->action_result == 0 )
+    {
+        bool changed = 0;
+        int m = dialog_get_item( dlist, 'meas' )->int_val;
+    	if( sprofile_get_int_value( "audio_mode_measurement", 0, NULL ) != m )
+	{
+	    if( m == 0 )
+		sprofile_remove_key( "audio_mode_measurement", NULL );
+	    else
+    		sprofile_set_int_value( "audio_mode_measurement", m, NULL );
+    	    changed = 1;
+    	}
+    	if( changed )
+    	{
+    	    wm->prefs_restart_request = true;
+    	    sprofile_save( 0 );
+    	}
+    }
+    return 1;
+}
+#endif
+
+static int prefs_audio_opt_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     prefs_audio_data* data = (prefs_audio_data*)user_data;
 
-    char* drv = sprofile_get_str_value( KEY_AUDIODRIVER, 0, 0 );
-    if( smem_strstr( drv, "asio" ) )
+    dialog_item* dlist = NULL;
+    WINDOWPTR dwin = NULL;
+
+#ifdef OS_WIN
+    if( data->opt_type == 1 )
     {
-	dialog_item di[ 5 ];
-	smem_clear( &di, sizeof( di ) );
-        di[ 0 ].type = DIALOG_ITEM_LABEL;
-        di[ 0 ].str_val = (char*)wm_get_string( STR_WM_FIRST_OUT_CH );
-        di[ 1 ].type = DIALOG_ITEM_NUMBER;
-        di[ 1 ].min = 0;
-        di[ 1 ].max = 64;
-        di[ 1 ].int_val = sprofile_get_int_value( "audio_ch", 0, 0 );
-        di[ 2 ].type = DIALOG_ITEM_LABEL;
-        di[ 2 ].str_val = (char*)wm_get_string( STR_WM_FIRST_IN_CH );
-        di[ 3 ].type = DIALOG_ITEM_NUMBER;
-        di[ 3 ].min = 0;
-        di[ 3 ].max = 64;
-        di[ 3 ].int_val = sprofile_get_int_value( "audio_ch_in", 0, 0 );
-        di[ 4 ].type = DIALOG_ITEM_NONE;
-        wm->opt_dialog_items = di;
-        int d = dialog( wm_get_string( STR_WM_ASIO_OPTIONS ), 0, wm_get_string( STR_WM_OKCANCEL ), wm );
-        if( d == 0 )
-        {
-    	    bool changed = 0;
-    	    if( sprofile_get_int_value( "audio_ch", 0, 0 ) != di[ 1 ].int_val )
-    	    {
-    		sprofile_set_int_value( "audio_ch", di[ 1 ].int_val, 0 );
-    		changed = 1;
-    	    }
-    	    if( sprofile_get_int_value( "audio_ch_in", 0, 0 ) != di[ 3 ].int_val )
-    	    {
-    		sprofile_set_int_value( "audio_ch_in", di[ 3 ].int_val, 0 );
-    		changed = 1;
-    	    }
-    	    if( changed )
-    	    {
-    		wm->prefs_restart_request = true;
-        	sprofile_save( 0 );
-    	    }
-        }
+	//ASIO
+	while( 1 )
+	{
+    	    dialog_item* di = NULL;
+
+    	    di = dialog_new_item( &dlist ); if( !di ) break;
+    	    di->type = DIALOG_ITEM_LABEL;
+    	    di->str_val = (char*)wm_get_string( STR_WM_FIRST_OUT_CH );
+
+    	    di = dialog_new_item( &dlist ); if( !di ) break;
+    	    di->type = DIALOG_ITEM_NUMBER;
+    	    di->min = 0;
+    	    di->max = 64;
+    	    di->int_val = sprofile_get_int_value( "audio_ch", 0, 0 );
+    	    di->id = 'outc';
+
+    	    di = dialog_new_item( &dlist ); if( !di ) break;
+    	    di->type = DIALOG_ITEM_LABEL;
+    	    di->str_val = (char*)wm_get_string( STR_WM_FIRST_IN_CH );
+
+    	    di = dialog_new_item( &dlist ); if( !di ) break;
+    	    di->type = DIALOG_ITEM_NUMBER;
+    	    di->min = 0;
+    	    di->max = 64;
+    	    di->int_val = sprofile_get_int_value( "audio_ch_in", 0, 0 );
+    	    di->id = 'inpc';
+
+    	    wm->opt_dialog_items = dlist;
+    	    dwin = dialog_open( wm_get_string( STR_WM_ASIO_OPTIONS ), NULL, wm_get_string( STR_WM_OKCANCEL ), DIALOG_FLAG_SINGLE, wm ); //retval = decorator
+    	    if( !dwin ) break;
+
+    	    set_handler( dwin->childs[ 0 ], prefs_audio_opt_asio_dialog_handler, user_data, wm );
+    	    dialog_set_flags( dwin, DIALOG_FLAG_AUTOREMOVE_ITEMS );
+    	    dlist = NULL; //because we use DIALOG_FLAG_AUTOREMOVE_ITEMS
+
+    	    break;
+    	}
     }
-    
+#endif
+#ifdef OS_IOS
+    if( data->opt_type == 2 )
+    {
+	//Audio Unit
+	while( 1 )
+	{
+    	    dialog_item* di = NULL;
+
+    	    di = dialog_new_item( &dlist ); if( !di ) break;
+    	    di->type = DIALOG_ITEM_CHECKBOX;
+    	    di->str_val = (char*)wm_get_string( STR_WM_MEASUREMENT_MODE );
+    	    di->int_val = sprofile_get_int_value( "audio_mode_measurement", 0, 0 );
+    	    di->id = 'meas';
+
+    	    wm->opt_dialog_items = dlist;
+    	    dwin = dialog_open( wm_get_string( STR_WM_ADD_OPTIONS ), NULL, wm_get_string( STR_WM_OKCANCEL ), DIALOG_FLAG_SINGLE, wm ); //retval = decorator
+    	    if( !dwin ) break;
+
+    	    set_handler( dwin->childs[ 0 ], prefs_audio_opt_au_dialog_handler, user_data, wm );
+    	    dialog_set_flags( dwin, DIALOG_FLAG_AUTOREMOVE_ITEMS );
+    	    dlist = NULL; //because we use DIALOG_FLAG_AUTOREMOVE_ITEMS
+
+    	    break;
+    	}
+    }
+#endif
+
+    smem_free( dlist );
+
     return 0;
-}   
+}
 
 int prefs_audio_handler( sundog_event* evt, window_manager* wm )
 {
@@ -1637,7 +1894,7 @@ int prefs_audio_handler( sundog_event* evt, window_manager* wm )
 	case EVT_AFTERCREATE:
 	    {
 		data->win = win;
-		
+
 		char ts[ 512 ];
 		int y = 0;
 
@@ -1691,7 +1948,7 @@ int prefs_audio_handler( sundog_event* evt, window_manager* wm )
 		y += wm->text_ysize + wm->interelement_space;
 
 		prefs_audio_reinit( win );
-		
+
 		wm->prefs_section_ysize = y;
 	    }
 	    retval = 1;

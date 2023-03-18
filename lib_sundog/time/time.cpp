@@ -1,7 +1,7 @@
 /*
     time.cpp - time management (thread-safe)
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -272,6 +272,9 @@ ticks_t stime_ticks( void )
     //return (ticks_t)GetTickCount();
 #endif
 }
+
+//#include <x86intrin.h>
+//uint64_t t1 = __rdtsc();
 
 #if defined(OS_WIN) || defined(OS_WINCE)
 ticks_hr_t stime_ticks_per_second_hires( void )

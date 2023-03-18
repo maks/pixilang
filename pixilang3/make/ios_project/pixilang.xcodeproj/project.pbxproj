@@ -98,7 +98,7 @@
 		FA5818B613375DEB0059DAF4 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = FA5818B413375DEB0059DAF4 /* InfoPlist.strings */; };
 		FA64F26E216527B000E03E9E /* file.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FA64F1E1216527B000E03E9E /* file.cpp */; };
 		FA64F26F216527B000E03E9E /* file_apple.mm in Sources */ = {isa = PBXBuildFile; fileRef = FA64F1E3216527B000E03E9E /* file_apple.mm */; };
-		FA64F270216527B000E03E9E /* file_type.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FA64F1E4216527B000E03E9E /* file_type.cpp */; };
+		FA64F270216527B000E03E9E /* file_format.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FA64F1E4216527B000E03E9E /* file_format.cpp */; };
 		FA64F271216527B000E03E9E /* log.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FA64F1E6216527B000E03E9E /* log.cpp */; };
 		FA64F28E216527B000E03E9E /* main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = FA64F215216527B000E03E9E /* main.storyboard */; };
 		FA64F28F216527B000E03E9E /* sundog_bridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = FA64F217216527B000E03E9E /* sundog_bridge.mm */; };
@@ -133,8 +133,7 @@
 		FA716D171DBB856700D0C16A /* arm_init.c in Sources */ = {isa = PBXBuildFile; fileRef = FA716D141DBB856700D0C16A /* arm_init.c */; };
 		FA716D181DBB856700D0C16A /* filter_neon.S in Sources */ = {isa = PBXBuildFile; fileRef = FA716D151DBB856700D0C16A /* filter_neon.S */; };
 		FA716D191DBB856700D0C16A /* filter_neon_intrinsics.c in Sources */ = {isa = PBXBuildFile; fileRef = FA716D161DBB856700D0C16A /* filter_neon_intrinsics.c */; };
-		FAAA86DB188EF01300FB3245 /* jpeg_decoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FAAA86D3188EF01300FB3245 /* jpeg_decoder.cpp */; };
-		FAAA86DC188EF01300FB3245 /* jpeg_encoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FAAA86D5188EF01300FB3245 /* jpeg_encoder.cpp */; };
+		FA95D7FB29AB5E0A006F0164 /* file_format_rw.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FA95D7FA29AB5E0A006F0164 /* file_format_rw.cpp */; };
 		FAAA86DD188EF01300FB3245 /* jpgd.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FAAA86D7188EF01300FB3245 /* jpgd.cpp */; };
 		FAAA86DE188EF01300FB3245 /* jpge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = FAAA86D9188EF01300FB3245 /* jpge.cpp */; };
 		FAB75D6818FD262900CA7F10 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FAB75D6718FD262900CA7F10 /* CoreVideo.framework */; };
@@ -308,7 +307,7 @@
 		FA64F1E1216527B000E03E9E /* file.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = file.cpp; sourceTree = "<group>"; };
 		FA64F1E2216527B000E03E9E /* file.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = file.h; sourceTree = "<group>"; };
 		FA64F1E3216527B000E03E9E /* file_apple.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = file_apple.mm; sourceTree = "<group>"; };
-		FA64F1E4216527B000E03E9E /* file_type.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = file_type.cpp; sourceTree = "<group>"; };
+		FA64F1E4216527B000E03E9E /* file_format.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = file_format.cpp; sourceTree = "<group>"; };
 		FA64F1E6216527B000E03E9E /* log.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = log.cpp; sourceTree = "<group>"; };
 		FA64F1E7216527B000E03E9E /* log.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = log.h; sourceTree = "<group>"; };
 		FA64F215216527B000E03E9E /* main.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; path = main.storyboard; sourceTree = "<group>"; };
@@ -359,10 +358,7 @@
 		FA716D141DBB856700D0C16A /* arm_init.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = arm_init.c; sourceTree = "<group>"; };
 		FA716D151DBB856700D0C16A /* filter_neon.S */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.asm; path = filter_neon.S; sourceTree = "<group>"; };
 		FA716D161DBB856700D0C16A /* filter_neon_intrinsics.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = filter_neon_intrinsics.c; sourceTree = "<group>"; };
-		FAAA86D3188EF01300FB3245 /* jpeg_decoder.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jpeg_decoder.cpp; sourceTree = "<group>"; };
-		FAAA86D4188EF01300FB3245 /* jpeg_decoder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = jpeg_decoder.h; sourceTree = "<group>"; };
-		FAAA86D5188EF01300FB3245 /* jpeg_encoder.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jpeg_encoder.cpp; sourceTree = "<group>"; };
-		FAAA86D6188EF01300FB3245 /* jpeg_encoder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = jpeg_encoder.h; sourceTree = "<group>"; };
+		FA95D7FA29AB5E0A006F0164 /* file_format_rw.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = file_format_rw.cpp; sourceTree = "<group>"; };
 		FAAA86D7188EF01300FB3245 /* jpgd.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jpgd.cpp; sourceTree = "<group>"; };
 		FAAA86D8188EF01300FB3245 /* jpgd.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = jpgd.h; sourceTree = "<group>"; };
 		FAAA86D9188EF01300FB3245 /* jpge.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = jpge.cpp; sourceTree = "<group>"; };
@@ -715,10 +711,11 @@
 		FA64F1E0216527B000E03E9E /* file */ = {
 			isa = PBXGroup;
 			children = (
+				FA95D7FA29AB5E0A006F0164 /* file_format_rw.cpp */,
 				FA64F1E1216527B000E03E9E /* file.cpp */,
 				FA64F1E2216527B000E03E9E /* file.h */,
 				FA64F1E3216527B000E03E9E /* file_apple.mm */,
-				FA64F1E4216527B000E03E9E /* file_type.cpp */,
+				FA64F1E4216527B000E03E9E /* file_format.cpp */,
 			);
 			path = file;
 			sourceTree = "<group>";
@@ -928,10 +925,6 @@
 		FAE0A1D416134ECC00403515 /* lib_jpeg */ = {
 			isa = PBXGroup;
 			children = (
-				FAAA86D3188EF01300FB3245 /* jpeg_decoder.cpp */,
-				FAAA86D4188EF01300FB3245 /* jpeg_decoder.h */,
-				FAAA86D5188EF01300FB3245 /* jpeg_encoder.cpp */,
-				FAAA86D6188EF01300FB3245 /* jpeg_encoder.h */,
 				FAAA86D7188EF01300FB3245 /* jpgd.cpp */,
 				FAAA86D8188EF01300FB3245 /* jpgd.h */,
 				FAAA86D9188EF01300FB3245 /* jpge.cpp */,
@@ -1071,7 +1064,7 @@
 				FA3801DA22FACF490064281E /* psynth_net.cpp in Sources */,
 				FA3801BB22FACF490064281E /* xm_instrum.cpp in Sources */,
 				FA64F2AB216527B000E03E9E /* devrgn.cpp in Sources */,
-				FA64F270216527B000E03E9E /* file_type.cpp in Sources */,
+				FA64F270216527B000E03E9E /* file_format.cpp in Sources */,
 				FA64F2C1216527B000E03E9E /* wm_wbd.cpp in Sources */,
 				FA3801C022FACF490064281E /* psynths_distortion.cpp in Sources */,
 				FA64F2AC216527B000E03E9E /* wm.cpp in Sources */,
@@ -1088,6 +1081,7 @@
 				FAE0A0E516134BA000403515 /* pngset.c in Sources */,
 				FA1C3581221A93B500DF417D /* app.cpp in Sources */,
 				FA64F2B5216527B000E03E9E /* wm_hnd_list.cpp in Sources */,
+				FA95D7FB29AB5E0A006F0164 /* file_format_rw.cpp in Sources */,
 				FAE0A0E616134BA000403515 /* pngtrans.c in Sources */,
 				FAE0A0E716134BA000403515 /* pngwio.c in Sources */,
 				FAE0A0E816134BA000403515 /* pngwrite.c in Sources */,
@@ -1106,7 +1100,6 @@
 				FA3801CD22FACF490064281E /* psynths_compressor.cpp in Sources */,
 				FA3801B922FACF490064281E /* xm_pattern.cpp in Sources */,
 				FA3801AF22FACF490064281E /* sunvox_engine_load_module.cpp in Sources */,
-				FAAA86DC188EF01300FB3245 /* jpeg_encoder.cpp in Sources */,
 				FA64F271216527B000E03E9E /* log.cpp in Sources */,
 				FA3801AE22FACF490064281E /* sunvox_engine_audio_callback.cpp in Sources */,
 				FA64F2B3216527B000E03E9E /* wm_hnd_fdialog.cpp in Sources */,
@@ -1174,7 +1167,6 @@
 				FA3801CB22FACF490064281E /* psynths_vibrato.cpp in Sources */,
 				FA3801D022FACF490064281E /* psynths_delay.cpp in Sources */,
 				FA3801D622FACF490064281E /* psynth_dsp.cpp in Sources */,
-				FAAA86DB188EF01300FB3245 /* jpeg_decoder.cpp in Sources */,
 				FAE0A1FE16134EE900403515 /* pixilang_vm_gfx.cpp in Sources */,
 				FA38020D22FACFC20064281E /* mdct.c in Sources */,
 				FA3801DE22FACF490064281E /* psynths_generator.cpp in Sources */,
@@ -1225,7 +1217,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
+				USER_HEADER_SEARCH_PATHS = "../../../lib_gif/ ../../../lib_png/ ../../../lib_jpeg/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_pixilang/ ../../../lib_dsp/ ../../../lib_vorbis/tremor/";
 				WARNING_CFLAGS = "-Wno-implicit-function-declaration";
 			};
 			name = Debug;
@@ -1245,7 +1237,7 @@
 				OTHER_CFLAGS = "-DNS_BLOCK_ASSERTIONS=1";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
+				USER_HEADER_SEARCH_PATHS = "../../../lib_gif/ ../../../lib_png/ ../../../lib_jpeg/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_pixilang/ ../../../lib_dsp/ ../../../lib_vorbis/tremor/";
 				WARNING_CFLAGS = "-Wno-implicit-function-declaration";
 			};
 			name = Release;
@@ -1253,18 +1245,18 @@
 		FA5818CE13375DEB0059DAF4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development: Alexander Zolotov (A2FDM86ZBS)";
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 1;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 74H3XP39WB;
 				GCC_DYNAMIC_NO_PIC = NO;
 				INFOPLIST_FILE = "pixilang/pixilang-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
-				MARKETING_VERSION = 3.8.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 3.8.3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "Alex Dev Profile 3";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Alex Dev Profile 4";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
 				WRAPPER_EXTENSION = app;
 			};
 			name = Debug;
@@ -1272,18 +1264,18 @@
 		FA5818CF13375DEB0059DAF4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
 				CODE_SIGN_IDENTITY = "Apple Development: Alexander Zolotov (A2FDM86ZBS)";
 				COPY_PHASE_STRIP = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 74H3XP39WB;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 74H3XP39WB;
 				INFOPLIST_FILE = "pixilang/pixilang-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
-				MARKETING_VERSION = 3.8.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 3.8.3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "Alex Dev Profile 3";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Alex Dev Profile 4";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
 				VALIDATE_PRODUCT = YES;
 				WRAPPER_EXTENSION = app;
 			};
@@ -1304,7 +1296,7 @@
 				OTHER_CFLAGS = "-DNS_BLOCK_ASSERTIONS=1";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
+				USER_HEADER_SEARCH_PATHS = "../../../lib_gif/ ../../../lib_png/ ../../../lib_jpeg/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_pixilang/ ../../../lib_dsp/ ../../../lib_vorbis/tremor/";
 				WARNING_CFLAGS = "-Wno-implicit-function-declaration";
 			};
 			name = Distribution;
@@ -1312,17 +1304,15 @@
 		FAA94DCA13BB2733001C58F0 /* Distribution */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
 				CODE_SIGN_IDENTITY = "Apple Distribution: Alexander Zolotov (74H3XP39WB)";
 				COPY_PHASE_STRIP = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = "pixilang/pixilang-Info.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.0;
-				MARKETING_VERSION = 3.8.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 3.8.3;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "Alex Distribution Profile 3";
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "../../../lib_jpeg/ ../../../lib_png/ ../../../lib_gif/ ../../../lib_sundog/ ../../../lib_sunvox/ ../../../lib_dsp/ ../../../lib_pixilang/ ../../../";
 				VALIDATE_PRODUCT = YES;
 				WRAPPER_EXTENSION = app;
 			};

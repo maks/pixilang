@@ -23,7 +23,7 @@ const char* g_sdriver_infos[] =
     "JACK",
 #endif
 };
-    
+
 const char* g_sdriver_names[] =
 {
     "audiounit",

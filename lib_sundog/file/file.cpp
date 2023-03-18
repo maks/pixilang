@@ -1,7 +1,7 @@
 /*
     file.cpp - file management (thread-safe open/close)
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -1155,8 +1155,8 @@ int sfs_rename( const char* old_name, const char* new_name )
 
     const char* name1 = sfs_make_filename( old_name, true );
     const char* name2 = sfs_make_filename( new_name, true );
-    if( name1 == 0 ) return -1;
-    if( name2 == 0 ) return -1;
+    if( !name1 ) return -1;
+    if( !name2 ) return -1;
 
 #if defined(OS_UNIX)
     retval = rename( name1, name2 );
@@ -1194,7 +1194,7 @@ int sfs_mkdir( const char* pathname, uint mode )
 {
     int retval = -1;
     const char* name = sfs_make_filename( pathname, true );
-    if( name == 0 ) return -1;
+    if( !name ) return -1;
 #ifdef OS_UNIX
     retval = mkdir( name, mode );
 #endif

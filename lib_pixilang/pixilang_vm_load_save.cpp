@@ -1,17 +1,12 @@
 /*
     pixilang_vm_load_save.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
 #include "sundog.h"
 #include "pixilang.h"
-
-#ifndef PIX_NOJPEG
-    #include "jpeg_decoder.h"
-    #include "jpeg_encoder.h"
-#endif
 
 #ifndef PIX_NOPNG
 #include "png.h"
@@ -173,21 +168,21 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
 {
     PIX_CID rv = -1;
     
-    int format = SFS_FILE_TYPE_UNKNOWN;
+    int format = SFS_FILE_FMT_UNKNOWN;
     
     if( filename && f == 0 ) f = sfs_open( filename, "rb" );
     if( f == 0 ) return -1;
 
-    sfs_file_type ftype = sfs_get_file_type( 0, f );
-    switch( ftype )
+    sfs_file_fmt fmt = sfs_get_file_format( NULL, f );
+    switch( fmt )
     {
-	case SFS_FILE_TYPE_WAVE:
-	case SFS_FILE_TYPE_AIFF:
-        case SFS_FILE_TYPE_JPEG:
-	case SFS_FILE_TYPE_PNG:
-	case SFS_FILE_TYPE_GIF:
-	case SFS_FILE_TYPE_PIXICONTAINER:
-	    format = (int)ftype;
+	case SFS_FILE_FMT_WAVE:
+	case SFS_FILE_FMT_AIFF:
+        case SFS_FILE_FMT_JPEG:
+	case SFS_FILE_FMT_PNG:
+	case SFS_FILE_FMT_GIF:
+	case SFS_FILE_FMT_PIXICONTAINER:
+	    format = (int)fmt;
 	    break;
 	default: break;
     }
@@ -197,20 +192,20 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
     switch( format )
     {
 #ifndef PIX_NOJPEG
-	case SFS_FILE_TYPE_JPEG:
+	case SFS_FILE_FMT_JPEG:
 	    {
-		int width;
-		int height;
-		void* img = load_jpeg( 0, f, &width, &height, 0, JD_SUNDOG_COLOR );
-		if( img )
+		simage_desc img = simage_desc();
+		img.format = PFMT_SUNDOG_COLOR;
+		sfs_load_jpeg( NULL, f, &img );
+		if( img.data )
 		{
-		    rv = pix_vm_new_container( -1, width, height, 32, img, vm );
+		    rv = pix_vm_new_container( -1, img.width, img.height, 32, img.data, vm );
 		}
 	    }
 	    break;
 #endif
 #ifndef PIX_NOPNG
-	case SFS_FILE_TYPE_PNG:
+	case SFS_FILE_FMT_PNG:
 	    {
 		png_structp png_ptr = 0;
 		png_infop info_ptr = 0;
@@ -534,7 +529,7 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
 	    break;
 #endif
 #ifndef PIX_NOGIF
-	case SFS_FILE_TYPE_GIF:
+	case SFS_FILE_FMT_GIF:
 	    {
 		uint8_t* screen_line = 0;
 		COLORPTR next_screen = 0; //Next screen (layer 1). Next screen images will be on layer 2.
@@ -726,7 +721,7 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
 	    }
 	    break;
 #endif
-	case SFS_FILE_TYPE_WAVE:
+	case SFS_FILE_FMT_WAVE:
 	    {
 		sfs_seek( f, 0, 2 );
 		size_t file_size = sfs_tell( f );
@@ -924,7 +919,7 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
 		}
 	    }
 	    break;
-	case SFS_FILE_TYPE_AIFF:
+	case SFS_FILE_FMT_AIFF:
 	    {
 		sfs_seek( f, 4, 0 );
 		
@@ -1106,7 +1101,7 @@ PIX_CID pix_vm_load( const char* filename, sfs_file f, int par1, pix_vm* vm )
 		}
 	    }
 	    break;
-	case SFS_FILE_TYPE_PIXICONTAINER:
+	case SFS_FILE_FMT_PIXICONTAINER:
 	    {
 		char chunk_name[ 64 ];
 		uint64_t chunk_size;
@@ -1277,7 +1272,7 @@ next_pc_chunk:
     if( rv < 0 )
     {
 	//Some error or format not recognized:
-	format = SFS_FILE_TYPE_UNKNOWN;
+	format = SFS_FILE_FMT_UNKNOWN;
 	sfs_seek( f, 0, 2 );
 	size_t size = sfs_tell( f );
 	sfs_rewind( f );
@@ -1336,7 +1331,7 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 	{
 	    switch( format )
 	    {
-		case SFS_FILE_TYPE_UNKNOWN:
+		case SFS_FILE_FMT_UNKNOWN:
 		    {
 			sfs_write( c->data, 1, c->size * g_pix_container_type_sizes[ c->type ], f );
 			sfs_close( f );
@@ -1344,7 +1339,7 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 		    }
 		    break;
 #ifndef PIX_NOJPEG
-		case SFS_FILE_TYPE_JPEG:
+		case SFS_FILE_FMT_JPEG:
 		    {
 			if( sizeof( COLOR ) != g_pix_container_type_sizes[ c->type ] )
 			{
@@ -1352,8 +1347,8 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 			    break;
 			}
 
-			je_params jpg_params;
-			init_je_params( &jpg_params );
+			simage_desc img = simage_desc();
+			sfs_jpeg_enc_params jpg_params = sfs_jpeg_enc_params();
 			if( par1 ) 
 			{
 			    int q = PIX_JPEG_QUALITY( par1 );
@@ -1366,15 +1361,18 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 			    if( par1 & PIX_JPEG_TWOPASS )
 				jpg_params.two_pass_flag = 1;
 			}
-			jpg_params.pixel_format = JE_SUNDOG_COLOR;
-			save_jpeg( 0, f, c->xsize, c->ysize, (const uint8_t*)pix_vm_get_container_data( cnum, vm ), &jpg_params );
+			img.data = pix_vm_get_container_data( cnum, vm );
+			img.format = PFMT_SUNDOG_COLOR;
+			img.width = c->xsize;
+			img.height = c->ysize;
+			sfs_save_jpeg( NULL, f, &img, &jpg_params );
 
 			rv = 0;
 		    }
 		    break;
 #endif
 #ifndef PIX_NOPNG
-		case SFS_FILE_TYPE_PNG:
+		case SFS_FILE_FMT_PNG:
 		    {
 			if( sizeof( COLOR ) != g_pix_container_type_sizes[ c->type ] )
 			{
@@ -1494,7 +1492,7 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 		    break;
 #endif
 #ifndef PIX_NOGIF
-		case SFS_FILE_TYPE_GIF:
+		case SFS_FILE_FMT_GIF:
 		    {
 			if( sizeof( COLOR ) != g_pix_container_type_sizes[ c->type ] )
 			{
@@ -1568,9 +1566,21 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 				    {
 					//Graphic Control Extension:
 					uint8_t gce[ 4 ];
-					int fps = pix_vm_get_container_property_i( cnum, "fps", -1, vm );
-					if( fps <= 0 ) fps = 20;
-					fps = 100 / fps;
+					int fps = 100 / 20;
+					pix_sym* fps_prop = pix_vm_get_container_property( cnum, "fps", -1, vm );
+					if( fps_prop )
+					{
+    					    if( fps_prop->type == SYMTYPE_NUM_F )
+    					    {
+    						if( fps_prop->val.f != 0 )
+        					    fps = 100.0f / fps_prop->val.f;
+        				    }
+    					    else
+    					    {
+    						if( fps_prop->val.i != 0 )
+        					    fps = 100 / fps_prop->val.i;
+        				    }
+					}
 					gce[ 0 ] = 0;
 					gce[ 1 ] = fps & 255;
 					gce[ 2 ] = ( fps >> 8 ) & 255;
@@ -1749,7 +1759,7 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 		    }
 		    break;
 #endif
-		case SFS_FILE_TYPE_WAVE:
+		case SFS_FILE_FMT_WAVE:
 		    {
 			int freq = 0;
 			int bits = 8;
@@ -1840,7 +1850,7 @@ int pix_vm_save( PIX_CID cnum, const char* filename, sfs_file f, int format, int
 			rv = 0;
 		    }
 		    break;
-		case SFS_FILE_TYPE_PIXICONTAINER:
+		case SFS_FILE_FMT_PIXICONTAINER:
 		    {
                         while( 1 )
                         {

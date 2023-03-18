@@ -1,15 +1,18 @@
 /*
     pixilang_vm_audio.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
 #include "sundog.h"
 #include "pixilang.h"
 #ifndef PIX_NOSUNVOX
-    #include "sunvox_engine.h"
+    #define SVH_INLINES
+    #include "sunvox_engine_helper.h"
     #include "psynth/psynths_sampler.h"
+    #include "psynth/psynths_metamodule.h"
+    #include "psynth/psynths_vorbis_player.h"
 #endif
 
 #include <errno.h>
@@ -1325,17 +1328,7 @@ int pix_vm_sv_send_event( int sv_id, int track, int note, int vel, int mod, int 
 	t = sv->evt_t;
     else
 	t = stime_ticks_hires();
-    sunvox_user_cmd cmd;
-    smem_clear_struct( cmd );
-    cmd.ch = track;
-    cmd.t = t;
-    cmd.n.note = note;
-    cmd.n.vel = vel;
-    cmd.n.mod = mod;
-    cmd.n.ctl = ctl;
-    cmd.n.ctl_val = ctl_val;
-    sunvox_send_user_command( &cmd, sv->s );
-    return 0;
+    return svh_send_event( sv->s, t, track, note, vel, mod, ctl, ctl_val );
 }
 
 int pix_vm_sv_get_current_line( int sv_id, pix_vm* vm )
@@ -1367,6 +1360,14 @@ const char* pix_vm_sv_get_name( int sv_id, pix_vm* vm )
     GET_SV();
     if( !sv ) return NULL;
     return sv->s->proj_name;
+}
+
+int pix_vm_sv_set_name( int sv_id, char* name, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    sunvox_rename( sv->s, name );
+    return 0;
 }
 
 int pix_vm_sv_get_proj_par( int sv_id, int p, pix_vm* vm )
@@ -1488,11 +1489,32 @@ int pix_vm_sv_fload_module( int sv_id, sfs_file f, int x, int y, int z, pix_vm* 
     return rv;
 }
 
-int pix_vm_sv_sampler_fload( int sv_id, int mod, int slot, sfs_file f, pix_vm* vm )
+const char* g_pix_vm_sv_mod_load_types[] = { "Sampler", "MetaModule", "Vorbis player" };
+static int pix_vm_sv_mod_load_check( int sv_id, int modtype, int mod, pix_vm* vm )
+{
+    if( (unsigned)modtype > (unsigned)2 ) return -1;
+    const char* modtype_str1 = pix_vm_sv_get_module_type( sv_id, mod, vm );
+    const char* modtype_str2 = g_pix_vm_sv_mod_load_types[ modtype ];
+    if( strcmp( modtype_str1, modtype_str2 ) )
+    {
+        slog( "Can't load data into the %s module. Expected type - %s", modtype_str1, modtype_str2 );
+        return -1;
+    }
+    return 0;
+}
+int pix_vm_sv_mod_fload( int sv_id, int modtype, int mod, int slot, sfs_file f, pix_vm* vm )
 {
     GET_SV();
     if( !sv ) return -1;
-    return sampler_load( NULL, f, mod, sv->s->net, slot, 0 );
+    if( pix_vm_sv_mod_load_check( sv_id, modtype, mod, vm ) ) return -1;
+    int rv = -1;
+    switch( modtype )
+    {
+	case 0: rv = sampler_load( NULL, f, mod, sv->s->net, slot, 0 ); break;
+	case 1: rv = metamodule_load( NULL, f, mod, sv->s->net ); break;
+	case 2: rv = vplayer_load_file( mod, NULL, f, sv->s->net ); break;
+    }
+    return rv;
 }
 
 int pix_vm_sv_get_number_of_modules( int sv_id, pix_vm* vm )
@@ -1533,6 +1555,7 @@ int pix_vm_sv_get_module_flags( int sv_id, int mod, pix_vm* vm )
     if( m )
     {
         rv |= PIX_SV_MODULE_FLAG_EXISTS;
+        if( m->flags & PSYNTH_FLAG_GENERATOR ) rv |= PIX_SV_MODULE_FLAG_GENERATOR;
         if( m->flags & PSYNTH_FLAG_EFFECT ) rv |= PIX_SV_MODULE_FLAG_EFFECT;
         if( m->flags & PSYNTH_FLAG_MUTE ) rv |= PIX_SV_MODULE_FLAG_MUTE;
         if( m->flags & PSYNTH_FLAG_SOLO ) rv |= PIX_SV_MODULE_FLAG_SOLO;
@@ -1565,6 +1588,23 @@ int* pix_vm_sv_get_module_inouts( int sv_id, int mod, bool out, int* num, pix_vm
     return rv;
 }
 
+const char* pix_vm_sv_get_module_type( int sv_id, int mod, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return NULL;
+    const char* rv = NULL;
+    psynth_module* m = psynth_get_module( mod, sv->s->net );
+    if( m )
+    {
+	psynth_event mod_evt = {};
+        mod_evt.command = PS_CMD_GET_NAME;
+        rv = (const char*)m->handler( mod, &mod_evt, sv->s->net );
+        if( !rv ) rv = "";
+        if( mod == 0 ) rv = "Output";
+    }
+    return rv;
+}
+
 const char* pix_vm_sv_get_module_name( int sv_id, int mod, pix_vm* vm )
 {
     GET_SV();
@@ -1576,6 +1616,14 @@ const char* pix_vm_sv_get_module_name( int sv_id, int mod, pix_vm* vm )
         rv = (const char*)m->name;
     }
     return rv;
+}
+
+int pix_vm_sv_set_module_name( int sv_id, int mod, char* name, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    psynth_rename( mod, name, sv->s->net );
+    return 0;
 }
 
 uint32_t pix_vm_sv_get_module_xy( int sv_id, int mod, pix_vm* vm )
@@ -1593,6 +1641,20 @@ uint32_t pix_vm_sv_get_module_xy( int sv_id, int mod, pix_vm* vm )
     return rv;
 }
 
+int pix_vm_sv_set_module_xy( int sv_id, int mod, int x, int y, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    psynth_module* m = psynth_get_module( mod, sv->s->net );
+    if( m )
+    {
+        m->x = x;
+        m->y = y;
+        return 0;
+    }
+    return -1;
+}
+
 COLOR pix_vm_sv_get_module_color( int sv_id, int mod, pix_vm* vm )
 {
     GET_SV();
@@ -1604,6 +1666,21 @@ COLOR pix_vm_sv_get_module_color( int sv_id, int mod, pix_vm* vm )
         rv = get_color( m->color[ 0 ], m->color[ 1 ], m->color[ 2 ] );
     }
     return rv;
+}
+
+int pix_vm_sv_set_module_color( int sv_id, int mod, COLOR color, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    psynth_module* m = psynth_get_module( mod, sv->s->net );
+    if( m )
+    {
+	m->color[ 0 ] = red( color );
+	m->color[ 1 ] = green( color );
+	m->color[ 2 ] = blue( color );
+        return 0;
+    }
+    return -1;
 }
 
 uint32_t pix_vm_sv_get_module_finetune( int sv_id, int mod, pix_vm* vm )
@@ -1619,6 +1696,32 @@ uint32_t pix_vm_sv_get_module_finetune( int sv_id, int mod, pix_vm* vm )
         rv = ( x & 0xFFFF ) | ( ( y & 0xFFFF ) << 16 );
     }
     return rv;
+}
+
+int pix_vm_sv_set_module_finetune( int sv_id, int mod, int finetune, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    psynth_module* m = psynth_get_module( mod, sv->s->net );
+    if( m )
+    {
+	m->finetune = finetune;
+        return 0;
+    }
+    return -1;
+}
+
+int pix_vm_sv_set_module_relnote( int sv_id, int mod, int relative_note, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    psynth_module* m = psynth_get_module( mod, sv->s->net );
+    if( m )
+    {
+        m->relative_note = relative_note;
+        return 0;
+    }
+    return -1;
 }
 
 int pix_vm_sv_get_module_scope( int sv_id, int mod, int ch, pix_vm_container* dest_cont, int samples_to_read, pix_vm* vm )
@@ -1729,49 +1832,67 @@ int pix_vm_sv_get_module_ctl_cnt( int sv_id, int mod, pix_vm* vm )
 {
     GET_SV();
     if( !sv ) return 0;
-    int rv = 0;
-    psynth_module* m = psynth_get_module( mod, sv->s->net );
-    if( m )
-    {
-        rv = m->ctls_num;
-    }
-    return rv;
+    return svh_get_number_of_module_ctls( sv->s, mod );
 }
 
 const char* pix_vm_sv_get_module_ctl_name( int sv_id, int mod, int ctl, pix_vm* vm )
 {
     GET_SV();
     if( !sv ) return NULL;
-    const char* rv = NULL;
-    psynth_module* m = psynth_get_module( mod, sv->s->net );
-    if( m )
-    {
-	if( (unsigned)ctl < (unsigned)m->ctls_num )
-	{
-	    rv = (const char*)m->ctls[ ctl ].name;
-    	}
-    }
-    return rv;
+    return svh_get_module_ctl_name( sv->s, mod, ctl );
 }
 
 int pix_vm_sv_get_module_ctl_value( int sv_id, int mod, int ctl, int scaled, pix_vm* vm )
 {
     GET_SV();
     if( !sv ) return 0;
-    int rv = 0;
-    psynth_module* m = psynth_get_module( mod, sv->s->net );
-    if( m )
+    return svh_get_module_ctl_value( sv->s, mod, ctl, scaled );
+}
+
+int pix_vm_sv_set_module_ctl_value( int sv_id, int mod, int ctl, int val, int scaled, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    ticks_hr_t t;
+    if( sv->evt_t_set )
+	t = sv->evt_t;
+    else
+	t = stime_ticks_hires();
+    return svh_set_module_ctl_value( sv->s, t, mod, ctl, val, scaled );
+}
+
+int pix_vm_sv_get_module_ctl_par( int sv_id, int mod, int ctl, int scaled, int par, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return 0;
+    return svh_get_module_ctl_par( sv->s, mod, ctl, scaled, par );
+}
+
+int pix_vm_sv_new_pat( int sv_id, int clone, int x, int y, int tracks, int lines, int icon_seed, char* name, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    if( !is_sv_locked( sv_id, vm, __FUNCTION__ ) ) return -1;
+    sunvox_engine* s = sv->s;
+    int rv = -1;
+    if( clone >= 0 )
+        rv = sunvox_new_pattern_clone( clone, x, y, s );
+    else
     {
-	if( (unsigned)ctl < (unsigned)m->ctls_num )
-	{
-	    rv = m->ctls[ ctl ].val[ 0 ];
-            if( scaled )
-            {
-                rv = ( ( rv - m->ctls[ ctl ].min ) << 15 ) / ( m->ctls[ ctl ].max - m->ctls[ ctl ].min );
-            }
-    	}
+        rv = sunvox_new_pattern( lines, tracks, x, y, icon_seed, s );
+        sunvox_rename_pattern( rv, name, s );
     }
     return rv;
+}
+
+int pix_vm_sv_remove_pat( int sv_id, int pat, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    if( !is_sv_locked( sv_id, vm, __FUNCTION__ ) ) return -1;
+    sunvox_engine* s = sv->s;
+    sunvox_remove_pattern( pat, s );
+    return 0;
 }
 
 int pix_vm_sv_get_number_of_pats( int sv_id, pix_vm* vm )
@@ -1797,6 +1918,53 @@ int pix_vm_sv_get_pat( int sv_id, int pat, sunvox_pattern** out_pat_data, sunvox
     if( !s->pats[ pat ] ) return -1;
     if( out_pat_data ) *out_pat_data = s->pats[ pat ];
     if( out_pat_info ) *out_pat_info = &s->pats_info[ pat ];
+    return 0;
+}
+
+int pix_vm_sv_set_pat_xy( int sv_id, int pat, int x, int y, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    if( !is_sv_locked( sv_id, vm, __FUNCTION__ ) ) return -1;
+    sunvox_engine* s = sv->s;
+    if( (unsigned)pat >= (unsigned)s->pats_num ) return -1;
+    sunvox_pattern* pat_data = s->pats[ pat ];
+    sunvox_pattern_info* pat_info = &s->pats_info[ pat ];
+    if( !pat_data ) return -1;
+    pat_info->x = x;
+    pat_info->y = y;
+    return 0;
+}
+
+int pix_vm_sv_set_pat_size( int sv_id, int pat, int tracks, int lines, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    if( !is_sv_locked( sv_id, vm, __FUNCTION__ ) ) return -1;
+    sunvox_engine* s = sv->s;
+    if( (unsigned)pat >= (unsigned)s->pats_num ) return -1;
+    if( !s->pats[ pat ] ) return -1;
+    sunvox_pattern* pat_data = s->pats[ pat ];
+    sunvox_pattern_info* pat_info = &s->pats_info[ pat ];
+    if( !pat_data ) return -1;
+    if( pat_data->data_xsize != tracks && tracks > 0 )
+        sunvox_pattern_set_number_of_channels( pat, tracks, s );
+    if( pat_data->data_ysize != lines && lines > 0 )
+        sunvox_pattern_set_number_of_lines( pat, lines, 0, s );
+    return 0;
+}
+
+int pix_vm_sv_set_pat_name( int sv_id, int pat, char* name, pix_vm* vm )
+{
+    GET_SV();
+    if( !sv ) return -1;
+    if( !is_sv_locked( sv_id, vm, __FUNCTION__ ) ) return -1;
+    sunvox_engine* s = sv->s;
+    if( (unsigned)pat >= (unsigned)s->pats_num ) return -1;
+    sunvox_pattern* pat_data = s->pats[ pat ];
+    sunvox_pattern_info* pat_info = &s->pats_info[ pat ];
+    if( !pat_data ) return -1;
+    sunvox_rename_pattern( pat, name, s );
     return 0;
 }
 

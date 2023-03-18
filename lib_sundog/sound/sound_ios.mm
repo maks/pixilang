@@ -1,7 +1,7 @@
 /*
     sound_ios.cpp - iOS: audio session, JACK, audiobus
     This file is part of the SunDog engine.
-    Copyright (C) 2013 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2013 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -42,17 +42,17 @@ int audio_session_init( bool record, int preferred_sample_rate, int preferred_bu
     while( 1 )
     {
 	NSError* error = nil;
-	NSString* category;
+	NSString* category = AVAudioSessionCategoryPlayback;
+	NSString* mode = NULL;
 	if( record )
-	{
 	    category = AVAudioSessionCategoryPlayAndRecord;
-	}
-	else
+	if( sprofile_get_int_value( "audio_mode_measurement", 0, NULL ) == 1 )
 	{
-	    category = AVAudioSessionCategoryPlayback;
+	    slog( "AVAudioSessionModeMeasurement\n" );
+	    mode = AVAudioSessionModeMeasurement;
 	}
 	AVAudioSessionCategoryOptions options = AVAudioSessionCategoryOptionMixWithOthers;
-	if( ![ [ AVAudioSession sharedInstance ] setCategory:category withOptions:options error:&error ] ) 
+	if( ![ [ AVAudioSession sharedInstance ] setCategory:category withOptions:options error:&error ] )
 	{
 	    slog( "Can't set audio session category: %s\n", [ [ error localizedDescription ] UTF8String ] );
 	    if( record )
@@ -68,6 +68,13 @@ int audio_session_init( bool record, int preferred_sample_rate, int preferred_bu
 	    else
 	    {
 		break;
+	    }
+	}
+	if( mode )
+	{
+	    if( ![ [ AVAudioSession sharedInstance ] setMode:mode error:&error ] )
+	    {
+		slog( "Can't set audio session mode %s. Error: %s\n", [ mode UTF8String ], [ [ error localizedDescription ] UTF8String ] );
 	    }
 	}
 

@@ -45,7 +45,7 @@ fn gl_callback( $userdata )
     
     ts = ""
     sprintf( ts, "FPS:%u", FPS )
-    print( ts, -WINDOW_XSIZE / 2 + 8, -WINDOW_YSIZE / 2 + 8, WHITE, TOP | LEFT )
+    print( ts, -WINDOW_XSIZE div 2 + 8, -WINDOW_YSIZE div 2 + 8, WHITE, TOP | LEFT )
     
     set_screen( 0 ) //Back to the default screen
 }

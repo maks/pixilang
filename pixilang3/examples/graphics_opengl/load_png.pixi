@@ -25,10 +25,10 @@ fn gl_callback( $userdata )
     t_reset()
     ts = ""
     sprintf( ts, "FPS:%u", FPS )
-    print( ts, -WINDOW_XSIZE / 2 + 8, -WINDOW_YSIZE / 2 + 8, WHITE, TOP | LEFT )
+    print( ts, -WINDOW_XSIZE div 2 + 8, -WINDOW_YSIZE div 2 + 8, WHITE, TOP | LEFT )
     
-    print( "Filter: Linear\nHigh quality (Nicest)", -WINDOW_XSIZE / 4, WINDOW_YSIZE / 4, WHITE )
-    print( "Filter: Nearest\nLow quality (Fastest)", WINDOW_XSIZE / 4, WINDOW_YSIZE / 4, WHITE )
+    print( "Filter: Linear\nHigh quality (Nicest)", -WINDOW_XSIZE div 4, WINDOW_YSIZE div 4, WHITE )
+    print( "Filter: Nearest\nLow quality (Fastest)", WINDOW_XSIZE div 4, WINDOW_YSIZE div 4, WHITE )
     
     set_screen( 0 )
 }

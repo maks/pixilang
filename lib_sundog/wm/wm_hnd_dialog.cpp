@@ -1,7 +1,7 @@
 /*
     wm_hnd_dialog.cpp
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -9,6 +9,14 @@
 #include "dsp.h"
 
 #define MAX_USER_PARS	8
+
+#define DIALOG_ITEM_EMPTY_LINE_SIZE     wm->interelement_space
+#define DIALOG_ITEM_TEXT_SIZE           wm->text_ysize
+#define DIALOG_ITEM_NUMBER_SIZE         DIALOG_ITEM_TEXT_SIZE
+#define DIALOG_ITEM_SLIDER_SIZE         wm->controller_ysize
+#define DIALOG_ITEM_LABEL_SIZE          font_char_y_size( win->font, wm )
+#define DIALOG_ITEM_POPUP_SIZE          wm->popup_button_ysize
+#define DIALOG_ITEM_CHECKBOX_SIZE       DIALOG_ITEM_TEXT_SIZE
 
 struct dialog_data
 {
@@ -44,68 +52,6 @@ static WINDOWPTR get_dialog_win( WINDOWPTR win ) //win = dialog handler or decor
     return win;
 }
 
-int dialog_item_handler( void* user_data, WINDOWPTR win, window_manager* wm )
-{
-    dialog_data* data = (dialog_data*)user_data;
-    if( data->items )
-    {
-	int i = 0;
-	while( 1 )
-	{
-	    if( data->items[ i ].type == DIALOG_ITEM_NONE )
-		break;
-
-	    if( data->items[ i ].win == win )
-	    {
-		switch( data->items[ i ].type )
-		{
-    		    case DIALOG_ITEM_EMPTY_LINE:
-    			break;
-		    case DIALOG_ITEM_NUMBER:
-		    case DIALOG_ITEM_NUMBER_HEX:
-			data->items[ i ].int_val = text_get_value( win, wm );
-			break;
-		    case DIALOG_ITEM_SLIDER:
-			data->items[ i ].int_val = scrollbar_get_value( win, wm ) + data->items[ i ].min;
-			break;
-		    case DIALOG_ITEM_TEXT:
-			{
-			    if( data->items[ i ].str_val )
-				smem_free( data->items[ i ].str_val );
-			    char* str = text_get_text( win, wm );
-			    if( str )
-			    {
-				int len = smem_get_size( str );
-				data->items[ i ].str_val = (char*)smem_new( len );
-				smem_copy( data->items[ i ].str_val, str, len );
-			    }
-			    else
-			    {
-				data->items[ i ].str_val = 0;
-			    }
-			}
-			break;
-		    case DIALOG_ITEM_POPUP:
-			data->items[ i ].int_val = button_get_menu_val( win );
-			break;
-		    case DIALOG_ITEM_CHECKBOX:
-			data->items[ i ].int_val = ( data->items[ i ].int_val ^ 1 ) & 1;
-			if( data->items[ i ].int_val )
-			    win->color = BUTTON_HIGHLIGHT_COLOR;
-			else
-			    win->color = wm->button_color;
-			draw_window( win, wm );
-			break;
-		}
-		break;
-	    }
-
-	    i++;
-	}
-    }
-    return 0;
-}
-
 int dialog_button_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 {
     dialog_data* data = (dialog_data*)user_data;
@@ -138,6 +84,70 @@ int dialog_button_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 	    remove_window( dwin, wm );
     	    recalc_regions( wm );
 	    draw_window( wm->root_win, wm );
+	}
+    }
+    return 0;
+}
+
+int dialog_item_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    dialog_data* data = (dialog_data*)user_data;
+    if( data->items )
+    {
+	int i = 0;
+	while( 1 )
+	{
+	    dialog_item* item = &data->items[ i ];
+
+	    if( item->type == DIALOG_ITEM_NONE )
+		break;
+
+	    if( item->win == win )
+	    {
+		switch( item->type )
+		{
+    		    case DIALOG_ITEM_EMPTY_LINE:
+    			break;
+		    case DIALOG_ITEM_NUMBER:
+		    case DIALOG_ITEM_NUMBER_HEX:
+			item->int_val = text_get_value( win, wm );
+			break;
+		    case DIALOG_ITEM_SLIDER:
+			item->int_val = scrollbar_get_value( win, wm ) + item->min;
+			break;
+		    case DIALOG_ITEM_TEXT:
+			{
+			    if( item->str_val )
+				smem_free( item->str_val );
+			    char* str = text_get_text( win, wm );
+			    if( str )
+			    {
+				int len = smem_get_size( str );
+				item->str_val = (char*)smem_new( len );
+				smem_copy( item->str_val, str, len );
+			    }
+			    else
+			    {
+				item->str_val = NULL;
+			    }
+			}
+			break;
+		    case DIALOG_ITEM_POPUP:
+			item->int_val = button_get_menu_val( win );
+			break;
+		    case DIALOG_ITEM_CHECKBOX:
+			item->int_val = ( item->int_val ^ 1 ) & 1;
+			if( item->int_val )
+			    win->color = BUTTON_HIGHLIGHT_COLOR;
+			else
+			    win->color = wm->button_color;
+			draw_window( win, wm );
+			break;
+		}
+		break;
+	    }
+
+	    i++;
 	}
     }
     return 0;
@@ -367,8 +377,10 @@ int dialog_handler( sundog_event* evt, window_manager* wm )
     return retval;
 }
 
-int dialog_get_item_ysize( int type, WINDOWPTR win )
+int dialog_get_item_ysize( int type, WINDOWPTR pwin ) //pwin = dialog handler or decorator with dialog
 {
+    WINDOWPTR win = get_dialog_win( pwin );
+    if( !win ) return 0;
     window_manager* wm = win->wm;
     int rv = 0;
     switch( type )
@@ -420,7 +432,12 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 	    break;
 
 	WINDOWPTR w = NULL;
-	if( data->items_created ) w = item->win;
+	int w_ysize = dialog_get_item_ysize( item->type, win );
+	if( data->items_created )
+	{
+	    w = item->win;
+	    if( w ) w_ysize = w->ysize;
+	}
 	switch( item->type )
 	{
     	    case DIALOG_ITEM_EMPTY_LINE:
@@ -433,7 +450,7 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 			wm->opt_text_numeric = 1;
 		    else
 			wm->opt_text_numeric = 2;
-		    w = new_window( "d.item.num", 0, y, 8, DIALOG_ITEM_NUMBER_SIZE, wm->text_background, win, text_handler, wm );
+		    w = new_window( "d.item.num", 0, y, 1, w_ysize, wm->text_background, win, text_handler, wm );
 		    text_set_flags( w, text_get_flags( w ) | TEXT_FLAG_CALL_HANDLER_ON_ANY_CHANGES );
 		}
 		text_set_range( w, item->min, item->max );
@@ -443,7 +460,7 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 		if( !w )
 		{
 		    wm->opt_scrollbar_compact = true;
-		    w = new_window( "d.item.slider", 0, y, 8, DIALOG_ITEM_SLIDER_SIZE, wm->scroll_color, win, scrollbar_handler, wm );
+		    w = new_window( "d.item.slider", 0, y, 1, w_ysize, wm->scroll_color, win, scrollbar_handler, wm );
 		}
 		scrollbar_set_name( w, item->str_val, wm );
             	scrollbar_set_parameters( w, item->int_val - item->min, item->max - item->min, 1, 1, wm );
@@ -453,7 +470,7 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 	    case DIALOG_ITEM_TEXT:
 		if( !w )
 		{
-		    w = new_window( "d.item.txt", 0, y, 8, DIALOG_ITEM_TEXT_SIZE, wm->text_background, win, text_handler, wm );
+		    w = new_window( "d.item.txt", 0, y, 1, w_ysize, wm->text_background, win, text_handler, wm );
 		    text_set_flags( w, text_get_flags( w ) | TEXT_FLAG_CALL_HANDLER_ON_ANY_CHANGES );
 		}
 		if( item->str_val )
@@ -466,25 +483,32 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 	    case DIALOG_ITEM_LABEL:
 		if( !w )
 		{
-	    	    w = new_window( (const char*)item->str_val, 0, y, 8, DIALOG_ITEM_LABEL_SIZE, win->color, win, label_handler, wm );
+	    	    w = new_window( (const char*)item->str_val, 0, y, 1, w_ysize, win->color, win, label_handler, wm );
 	    	}
 		break;
 	    case DIALOG_ITEM_POPUP:
 		if( !w )
 		{
 		    wm->opt_button_flags = BUTTON_FLAG_SHOW_VALUE | BUTTON_FLAG_SHOW_PREV_VALUE | BUTTON_FLAG_FLAT;
-		    w = new_window( (const char*)item->str_val, 0, y, 8, DIALOG_ITEM_POPUP_SIZE, wm->button_color, win, button_handler, wm );
+		    w = new_window( (const char*)item->str_val, 0, y, 1, w_ysize, wm->button_color, win, button_handler, wm );
 		}
-		button_set_menu( w, item->menu );
+		if( item->menu )
+		{
+		    button_set_menu( w, item->menu );
+		    item->menu = NULL;
+		}
 		button_set_menu_val( w, item->int_val );
 		break;
 	    case DIALOG_ITEM_CHECKBOX:
 		if( !w )
 		{
 		    wm->opt_button_flags = BUTTON_FLAG_FLAT;
-		    w = new_window( (const char*)item->str_val, 0, y, 8, DIALOG_ITEM_CHECKBOX_SIZE, wm->button_color, win, button_handler, wm );
-		    if( item->int_val ) w->color = BUTTON_HIGHLIGHT_COLOR;
+		    w = new_window( (const char*)item->str_val, 0, y, 1, w_ysize, wm->button_color, win, button_handler, wm );
 		}
+		if( item->int_val )
+		    w->color = BUTTON_HIGHLIGHT_COLOR;
+		else
+		    w->color = wm->button_color;
 		break;
 	}
 	if( data->items_created == false )
@@ -507,7 +531,7 @@ void dialog_reinit_items( WINDOWPTR pwin, bool show_and_focus ) //pwin = dialog 
 	    colcnt++;
 	    if( colcnt >= cols )
 	    {
-		y += dialog_get_item_ysize( item->type, win ) + wm->interelement_space;
+		y += w_ysize + wm->interelement_space;
 		colcnt = 0;
 		cols = 1;
 	    }
@@ -569,8 +593,7 @@ dialog_item* dialog_new_item( dialog_item** itemlist )
     if( !itemlist ) return NULL;
     if( *itemlist == NULL )
     {
-	*itemlist = (dialog_item*)smem_new( sizeof( dialog_item ) * 8 );
-	smem_zero( *itemlist );
+	*itemlist = (dialog_item*)smem_znew( sizeof( dialog_item ) * 8 );
     }
     if( *itemlist == NULL ) return NULL;
     int size = (int)smem_get_size( *itemlist ) / sizeof( dialog_item );

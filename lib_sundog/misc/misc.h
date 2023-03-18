@@ -115,6 +115,7 @@ smbox_msg* smbox_get( smbox* mb, const void* id, int timeout_ms );
 #define KEY_FONT_MEDIUM_MONO	"font_mm"
 #define KEY_FONT_BIG		"font_b"
 #define KEY_FONT_SMALL		"font_s"
+#define KEY_NO_FONT_UPSCALE	"no_font_upscale"
 #define KEY_NOCURSOR		"nocursor"
 #define KEY_NOAUTOLOCK		"noautolock"
 #define KEY_NOBORDER		"noborder"
@@ -125,6 +126,10 @@ smbox_msg* smbox_get( smbox* mb, const void* id, int timeout_ms );
 #define KEY_PENCONTROL		"pencontrol"
 #define KEY_SHOW_ZOOM_BUTTONS	"zoombtns"
 #define KEY_DOUBLECLICK		"doubleclick"
+#define KEY_KBD_AUTOREPEAT_DELAY	"ar_d1"
+#define KEY_KBD_AUTOREPEAT_FREQ		"ar_f1"
+#define KEY_MOUSE_AUTOREPEAT_DELAY	"ar_d2"
+#define KEY_MOUSE_AUTOREPEAT_FREQ	"ar_f2"
 #define KEY_MAXFPS              "maxfps"
 #define KEY_VSYNC		"vsync"
 #define KEY_FRAMEBUFFER		"framebuffer"
@@ -149,6 +154,9 @@ smbox_msg* smbox_get( smbox* mb, const void* id, int timeout_ms );
 #define KEY_FREQ		"frequency"
 #define KEY_CAMERA		"camera"
 #define KEY_CAM_ROTATE		"cam_rotate"
+#define KEY_SUNVOX_EDIT_MODE_P	"edit_mode_p" //pattern
+#define KEY_SUNVOX_EDIT_MODE_M	"edit_mode_m" //modules
+#define KEY_SUNVOX_EDIT_MODE_T	"edit_mode_t" //timeline
 
 struct sprofile_key
 {
@@ -174,6 +182,7 @@ void sprofile_new( sprofile_data* p ); //non thread safe
 void sprofile_remove_key( const char* key, sprofile_data* p );
 void sprofile_set_str_value( const char* key, const char* value, sprofile_data* p );
 void sprofile_set_int_value( const char* key, int value, sprofile_data* p );
+void sprofile_set_int_value2( const char* key, int value, int default_value, sprofile_data* p ); //with auto remove
 int sprofile_get_int_value( const char* key, int default_value, sprofile_data* p );
 char* sprofile_get_str_value( const char* key, const char* default_value, sprofile_data* p );
 void sprofile_close( sprofile_data* p ); //non thread safe
@@ -280,6 +289,8 @@ enum
 {
     UNDO_STATUS_NONE = 0,
     UNDO_STATUS_ADD_ACTION,
+    UNDO_STATUS_UNDO,
+    UNDO_STATUS_REDO
 };
 
 struct undo_action
@@ -292,7 +303,7 @@ struct undo_action
 
 struct undo_data
 {
-    int status;
+    int status; //check it inside the action_handler()
 
     size_t data_size;
     size_t data_size_limit;
@@ -434,6 +445,28 @@ void matrix_4x4_rotate( float angle, float x, float y, float z, float* m );
 void matrix_4x4_translate( float x, float y, float z, float* m );
 void matrix_4x4_scale( float x, float y, float z, float* m );
 void matrix_4x4_ortho( float left, float right, float bottom, float top, float z_near, float z_far, float* m ); //Multiply by an orthographic matrix
+
+//
+// Image
+//
+
+enum simage_pixel_format
+{
+    PFMT_GRAYSCALE_8,
+    PFMT_RGBA_8888,
+    PFMT_SUNDOG_COLOR,
+    PFMT_CNT
+};
+
+extern uint8_t g_simage_pixel_format_size[ PFMT_CNT ];
+
+struct simage_desc
+{
+    void*               data;
+    simage_pixel_format	format;
+    int                 width;
+    int                 height;
+};
 
 //
 // Misc

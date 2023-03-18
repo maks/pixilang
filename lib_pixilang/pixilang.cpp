@@ -1,7 +1,7 @@
 /*
     pixilang.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2021 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 

@@ -1,11 +1,79 @@
 /*
     keymap.cpp - key redefinition
     This file is part of the SunDog engine.
-    Copyright (C) 2014 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2014 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
 #include "sundog.h"
+
+char g_ascii_names[ 128 * 2 ];
+
+const char* get_key_name( int key )
+{
+    const char* rv = NULL;
+    if( key > ' ' && key <= '~' )
+    {
+        if( g_ascii_names[ '0' * 2 ] != '0' )
+        {
+            for( int i = 0; i < 128; i++ )
+            {
+                int c = i;
+                if( i >= 0x61 && i <= 0x7A ) c -= 0x20;
+                g_ascii_names[ i * 2 ] = c;
+                g_ascii_names[ i * 2 + 1 ] = 0;
+            }
+        }
+        return (const char*)&g_ascii_names[ key * 2 ];
+    }
+    switch( key )
+    {
+        case KEY_BACKSPACE: rv = "Backspace"; break;
+        case KEY_TAB: rv = "Tab"; break;
+        case KEY_ENTER: rv = "Enter"; break;
+        case KEY_ESCAPE: rv = "Escape"; break;
+        case KEY_SPACE: rv = "Space"; break;
+        case KEY_F1: rv = "F1"; break;
+        case KEY_F2: rv = "F2"; break;
+        case KEY_F3: rv = "F3"; break;
+        case KEY_F4: rv = "F4"; break;
+        case KEY_F5: rv = "F5"; break;
+        case KEY_F6: rv = "F6"; break;
+        case KEY_F7: rv = "F7"; break;
+        case KEY_F8: rv = "F8"; break;
+        case KEY_F9: rv = "F9"; break;
+        case KEY_F10: rv = "F10"; break;
+        case KEY_F11: rv = "F11"; break;
+        case KEY_F12: rv = "F12"; break;
+        case KEY_UP: rv = "Up"; break;
+        case KEY_DOWN: rv = "Down"; break;
+        case KEY_LEFT: rv = "Left"; break;
+        case KEY_RIGHT: rv = "Right"; break;
+        case KEY_INSERT: rv = "Insert"; break;
+        case KEY_DELETE: rv = "Delete"; break;
+        case KEY_HOME: rv = "Home"; break;
+        case KEY_END: rv = "End"; break;
+        case KEY_PAGEUP: rv = "PageUp"; break;
+        case KEY_PAGEDOWN: rv = "PageDown"; break;
+        case KEY_CAPS: rv = "CapsLock"; break;
+        case KEY_SHIFT: rv = "Shift"; break;
+        case KEY_CTRL: rv = "Ctrl"; break;
+        case KEY_ALT: rv = "Alt"; break;
+        case KEY_MENU: rv = "Menu"; break;
+        case KEY_CMD: rv = "Cmd"; break;
+        case KEY_FN: rv = "Fn"; break;
+        case KEY_MIDI_NOTE:
+        case KEY_MIDI_CTL:
+        case KEY_MIDI_NRPN:
+        case KEY_MIDI_RPN:
+        case KEY_MIDI_PROG:
+            rv = "MIDI: ";
+            break;
+        default:
+            break;
+    }
+    return rv;
+}
 
 inline void keymap_make_codename( char* name, int key, uint flags, uint pars1, uint pars2 )
 {
@@ -258,6 +326,8 @@ int keymap_bind2( sundog_keymap* km, int section_num, int key, uint flags, uint 
 		    if( action->keys[ bind_num ].key == KEY_MIDI_NOTE )
 		    {
 			int midi_note = action->keys[ bind_num ].pars1 & 255;
+			int midi_ch = ( action->keys[ bind_num ].pars2 >> 16 ) & 15;
+			midi_note += 128 * midi_ch;
 			km->midi_notes[ midi_note / 32 ] &= ~( 1 << ( midi_note & 31 ) );
 		    }
 		    if( prev_key && ( bind_flags & KEYMAP_BIND_FIX_CONFLICTS ) )
@@ -323,6 +393,8 @@ int keymap_bind2( sundog_keymap* km, int section_num, int key, uint flags, uint 
 		if( key == KEY_MIDI_NOTE )
 		{
 		    int midi_note = pars1 & 255;
+		    int midi_ch = ( pars1 >> 16 ) & 15;
+                    midi_note += 128 * midi_ch;
 		    km->midi_notes[ midi_note / 32 ] |= 1 << ( midi_note & 31 );
 		}
 	    }
@@ -408,14 +480,15 @@ sundog_keymap_key* keymap_get_key( sundog_keymap* km, int section_num, int actio
     return rv;
 }
 
-bool keymap_midi_note_assigned( sundog_keymap* km, int note, window_manager* wm )
+bool keymap_midi_note_assigned( sundog_keymap* km, int note, int channel, window_manager* wm )
 {
     if( !km )
     {
 	if( wm ) km = wm->km;
 	if( !km ) return false;
     }
-    if( km->midi_notes[ note / 32 ] & ( 1 << ( note & 31 ) ) )
+    int note2 = note + 128 * channel;
+    if( km->midi_notes[ note2 / 32 ] & ( 1 << ( note2 & 31 ) ) )
 	return true;
     return false;
 }
@@ -544,5 +617,52 @@ int keymap_load( sundog_keymap* km, sprofile_data* profile, window_manager* wm )
 	rv = 0;
 	break;
     }
+    return rv;
+}
+
+int keymap_print_available_keys( sundog_keymap* km, int section_num, int key_flags, window_manager* wm )
+{
+    if( !km )
+    {
+	if( wm ) km = wm->km;
+	if( !km ) return -1;
+    }
+    int rv = -1;
+    bool* keys = NULL;
+    while( 1 )
+    {
+	if( section_num < 0 ) break;
+	if( (unsigned)section_num >= smem_get_size( km->sections ) / sizeof( sundog_keymap_section ) ) break;
+	sundog_keymap_section* section = &km->sections[ section_num ];
+        int actions_count = (int)( smem_get_size( section->actions ) / sizeof( sundog_keymap_action ) );
+	keys = (bool*)smem_znew( sizeof( bool ) * 256 );
+        for( int anum = 0; anum < actions_count; anum++ )
+        {
+    	    sundog_keymap_action* action = &section->actions[ anum ];
+    	    for( int i = 0; i < KEYMAP_ACTION_KEYS; i++ )
+	    {
+		sundog_keymap_key* key = &action->keys[ i ];
+		if( key->key > 0 && key->key < KEY_UNKNOWN )
+		{
+		    if( key->flags == key_flags )
+		    {
+			keys[ key->key ] = 1;
+		    }
+		}
+	    }
+	}
+	slog( "Available keys for the section \"%s\" (flags %x):\n", section->name, key_flags );
+	for( int i = 0x20; i < KEY_UNKNOWN; i++ )
+	{
+	    if( i >= 'A' && i <= 'Z' ) continue; //skip capital chars
+	    if( keys[ i ] == 0 )
+	    {
+		slog( "  %s (%x)\n", get_key_name( i ), i );
+	    }
+	}
+	rv = 0;
+	break;
+    }
+    smem_free( keys );
     return rv;
 }

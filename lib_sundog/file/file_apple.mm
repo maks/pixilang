@@ -1,7 +1,7 @@
 /*
     file_apple.mm - file functions for iOS and macOS (objc)
     This file is part of the SunDog engine.
-    Copyright (C) 2018 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2018 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -140,7 +140,7 @@ int apple_sfs_global_init( void )
     printf( "Resources: %s\n", g_apple_resources_path );
 #endif
 
-#ifndef SUNDOG_MODULE
+/*#ifndef SUNDOG_MODULE
     //23 jun 2018: transition from the Caches (incorrect place for the settings) to Application Support:
     //https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/FileSystemOverview/FileSystemOverview.html#//apple_ref/doc/uid/TP40010672-CH2-SW2
     if( appsupport_just_created )
@@ -158,7 +158,7 @@ int apple_sfs_global_init( void )
 #endif
 	smem_free( ts );
     }
-#endif
+#endif*/
     
     [ pool release ];
     

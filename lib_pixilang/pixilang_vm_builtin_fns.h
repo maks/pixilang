@@ -30,7 +30,7 @@
 #define DPRINT( fmt, ARGS... ) {}
 #endif
 
-#define GET_VAL_FROM_STACK( v, snum, type ) { if( stack_types[ sp + snum ] == 0 ) v = (type)stack[ sp + snum ].i; else v = (type)stack[ sp + snum ].f; }
+#define GET_VAL_FROM_STACK( v, snum, type ) { size_t sp_ = PIX_CHECK_SP( sp + snum ); if( stack_types[ sp_ ] == 0 ) v = (type)stack[ sp_ ].i; else v = (type)stack[ sp_ ].f; }
 
 #define FN_HEADER PIX_VAL* stack = th->stack; int8_t* stack_types = th->stack_types;
 
@@ -53,6 +53,8 @@ void fn_reset_pixi_flags( PIX_BUILTIN_FN_PARAMETERS );
 void fn_get_pixi_prop_OR_set_pixi_prop( PIX_BUILTIN_FN_PARAMETERS );
 void fn_remove_pixi_prop( PIX_BUILTIN_FN_PARAMETERS );
 void fn_remove_pixi_props( PIX_BUILTIN_FN_PARAMETERS );
+void fn_get_pixi_proplist( PIX_BUILTIN_FN_PARAMETERS );
+void fn_remove_pixi_proplist( PIX_BUILTIN_FN_PARAMETERS );
 void fn_convert_pixi_type( PIX_BUILTIN_FN_PARAMETERS );
 void fn_show_smem_debug_messages( PIX_BUILTIN_FN_PARAMETERS );
 void fn_zlib_pack( PIX_BUILTIN_FN_PARAMETERS );
@@ -241,6 +243,7 @@ void fn_sv_send_event( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_current_line( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_current_signal_level( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_name( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_name( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_bpm( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_len( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_time_map( PIX_BUILTIN_FN_PARAMETERS );
@@ -248,24 +251,37 @@ void fn_sv_new_module( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_remove_module( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_connect_disconnect_module( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_fload_module( PIX_BUILTIN_FN_PARAMETERS );
-void fn_sv_sampler_fload( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_mod_fload( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_number_of_modules( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_find_module( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_selected_module( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_flags( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_inputs( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_get_module_type( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_name( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_name( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_xy( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_xy( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_color( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_color( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_finetune( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_finetune( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_relnote( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_scope( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_module_curve( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_ctl_cnt( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_ctl_name( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_module_ctl_value( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_module_ctl_value( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_get_module_ctl_par( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_new_pat( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_remove_pat( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_number_of_pats( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_find_pattern( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_pat( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_pat_xy( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_pat_size( PIX_BUILTIN_FN_PARAMETERS );
+void fn_sv_set_pat_name( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_set_pat_event( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_get_pat_event( PIX_BUILTIN_FN_PARAMETERS );
 void fn_sv_pat_mute( PIX_BUILTIN_FN_PARAMETERS );

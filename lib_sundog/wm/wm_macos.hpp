@@ -1,7 +1,7 @@
 /*
     wm_macos.h - platform-dependent module : macOS
     This file is part of the SunDog engine.
-    Copyright (C) 2009 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2009 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -89,6 +89,14 @@ void macos_sundog_touches( int x, int y, int mode, int touch_id, window_manager*
     if( evt ) EVENT;
 }
 
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//macOS Virtual Key Code -> SunDog Key Code
+//vk is a physical key code, not a real character code corresponding to this button!
+//Currently, only code matching for the standard English layout is supported.
+//In future updates it must be converted to real character codes (keysym)! (like in X11,SDL,WIN,ANDROID,iOS)
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 int vk2key( unsigned short vk )
 {
     int key;

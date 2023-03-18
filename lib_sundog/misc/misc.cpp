@@ -1,7 +1,7 @@
 /*
     misc.cpp - miscellaneous: string list, random generator, etc.
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -502,16 +502,17 @@ size_t sring_buf_write( sring_buf* b, void* data, size_t size )
 {
     if( !b ) return 0;
     if( !data ) return 0;
-    size_t rp = atomic_load_explicit( &b->rp, std::memory_order_relaxed ); //change it to memory_order_acquire for better handling of buffer overflow
-								           //(possible write over unread data?)
+    //RP may be less than WP, even if the read operation has already occurred - we can read some old value of RP.
+    //WP is always up-to-date, because we don't change it from other threads.
     size_t wp = atomic_load_explicit( &b->wp, std::memory_order_relaxed );
+    size_t rp = atomic_load_explicit( &b->rp, std::memory_order_relaxed ); //order_acquire? (see sring_buf_next())
     size_t size2 = b->buf_size - ( ( wp - rp ) & ( b->buf_size - 1 ) );
-    if( size > size2 ) return 0;
-    if( !b->buf )
+    if( size >= size2 ) return 0; // ">=" because at least 1 byte must be free in the buffer
+    /*if( !b->buf )
     {
 	b->buf = (uint8_t*)smem_new( b->buf_size );
 	if( !b->buf ) return 0;
-    }
+    }*/
     size_t rv = size;
     uint8_t* bdata = (uint8_t*)data;
     while( size )
@@ -524,8 +525,8 @@ size_t sring_buf_write( sring_buf* b, void* data, size_t size )
         bdata += avail;
         wp = ( wp + avail ) & ( b->buf_size - 1 );
     }
-    COMPILER_MEMORY_BARRIER();
-    atomic_store_explicit( &b->wp, wp, std::memory_order_relaxed );
+    COMPILER_MEMORY_BARRIER(); //for compatibility with older compilers and devices
+    atomic_store_explicit( &b->wp, wp, std::memory_order_release );
     return rv;
 }
 
@@ -534,6 +535,7 @@ size_t sring_buf_read( sring_buf* b, void* data, size_t size )
     if( !b ) return 0;
     if( !data ) return 0;
     if( size == 0 ) return 0;
+    //RP is always up-to-date, because we don't change it from other threads.
     size_t rp = atomic_load_explicit( &b->rp, std::memory_order_relaxed );
     size_t wp = atomic_load_explicit( &b->wp, std::memory_order_acquire );
     if( rp == wp ) return 0;
@@ -556,16 +558,25 @@ size_t sring_buf_read( sring_buf* b, void* data, size_t size )
 void sring_buf_next( sring_buf* b, size_t size )
 {
     if( !b ) return;
+    //RP is always up-to-date, because we don't change it from other threads.
     size_t rp = atomic_load_explicit( &b->rp, std::memory_order_relaxed );
     rp = ( rp + size ) & ( b->buf_size - 1 );
-    atomic_store_explicit( &b->rp, rp, std::memory_order_relaxed ); //change it to memory_order_release for better handling of buffer overflow
+    atomic_store_explicit( &b->rp, rp, std::memory_order_relaxed );
+    /*
+    On buffer overflow: (wp is very close to rp)
+      sring_buf_read() may still not be finished here (on ARMs)? Probably not...
+      To make sure sring_buf_read() is finished we should use std::memory_order_released (and std::memory_order_acquire in sring_buf_write())
+      Is there any other reason to use std::memory_order_released here?..
+    */
 }
 
 size_t sring_buf_avail( sring_buf* b )
 {
     if( !b ) return 0;
-    size_t d = atomic_load_explicit( &b->wp, std::memory_order_relaxed ) - atomic_load_explicit( &b->rp, std::memory_order_relaxed );
-    return d & ( b->buf_size - 1 );
+    //RP is always up-to-date, because we don't change it from other threads.
+    size_t rp = atomic_load_explicit( &b->rp, std::memory_order_relaxed );
+    size_t wp = atomic_load_explicit( &b->wp, std::memory_order_relaxed );
+    return ( wp - rp ) & ( b->buf_size - 1 );
 }
 
 //
@@ -732,7 +743,7 @@ sprofile_data g_profile;
 
 #define PROFILE_LOCK_TIMEOUT 1000
 
-void sprofile_new( sprofile_data* p ) //non thread safe
+void sprofile_new( sprofile_data* p ) //not thread safe
 {
     if( !p ) p = &g_profile;
 
@@ -867,6 +878,14 @@ void sprofile_set_int_value( const char* key, int value, sprofile_data* p )
     sprofile_set_str_value( key, ts, p );
 }
 
+void sprofile_set_int_value2( const char* key, int value, int default_value, sprofile_data* p )
+{
+    if( value == default_value )
+	sprofile_remove_key( key, p );
+    else
+	sprofile_set_int_value( key, value, p );
+}
+
 int sprofile_get_int_value( const char* key, int default_value, sprofile_data* p )
 {
     int rv = default_value;
@@ -917,7 +936,7 @@ char* sprofile_get_str_value( const char* key, const char* default_value, sprofi
     return rv;
 }
 
-void sprofile_close( sprofile_data* p ) //non thread safe
+void sprofile_close( sprofile_data* p ) //not thread safe
 {
     if( !p ) p = &g_profile;
 
@@ -946,7 +965,7 @@ void sprofile_close( sprofile_data* p ) //non thread safe
 
 #define PROFILE_KEY_CHAR( cc ) ( !( cc < 0x21 || ptr >= size ) )
 
-void sprofile_load( const char* filename, sprofile_data* p ) //non thread safe
+void sprofile_load( const char* filename, sprofile_data* p ) //not thread safe
 {
     char* str1 = (char*)smem_new( 1025 );
     if( !str1 ) return;
@@ -2402,7 +2421,10 @@ void execute_undo( undo_data* u )
 	}
 
 	size_t old_size = smem_get_size( a->data );
-	if( u->action_handler( 0, a, u ) == 0 )
+        u->status = UNDO_STATUS_UNDO;
+	int action_error = u->action_handler( 0, a, u );
+	u->status = UNDO_STATUS_NONE;
+	if( action_error == 0 )
 	{
 	    size_t new_size = smem_get_size( a->data );
 	    u->data_size -= old_size - new_size;
@@ -2453,7 +2475,10 @@ void execute_redo( undo_data* u )
 	}
 
 	size_t old_size = smem_get_size( a->data );
-	if( u->action_handler( 1, a, u ) == 0 )
+        u->status = UNDO_STATUS_REDO;
+	int action_error = u->action_handler( 1, a, u );
+        u->status = UNDO_STATUS_NONE;
+	if( action_error == 0 )
 	{
 	    size_t new_size = smem_get_size( a->data );
 	    u->data_size -= old_size - new_size;
@@ -2706,8 +2731,8 @@ int sclipboard_copy( sundog_engine* s, const char* filename, uint32_t flags )
 #endif
 
 #ifdef OS_WIN
-	sfs_file_type ftype = sfs_get_file_type( filename, 0 );
-	int ctype = sfs_get_clipboard_type( ftype );
+	sfs_file_fmt fmt = sfs_get_file_format( filename, 0 );
+	int ctype = sfs_get_clipboard_type( fmt );
         if( ctype < 0 ) ctype = sclipboard_type_utf8_text;
 	UINT format = 0;
 	HANDLE h = NULL;
@@ -2735,7 +2760,7 @@ int sclipboard_copy( sundog_engine* s, const char* filename, uint32_t flags )
 		break;
 	    }
 	    default:
-		if( ftype == SFS_FILE_TYPE_WAVE )
+		if( fmt == SFS_FILE_FMT_WAVE )
 		{
 		    format = CF_WAVE;
 		    h = GlobalAlloc( GMEM_MOVEABLE, fsize );
@@ -2750,7 +2775,7 @@ int sclipboard_copy( sundog_engine* s, const char* filename, uint32_t flags )
 			else h = NULL;
 		    }
 		}
-		slog( "Clipboard copy: file format %s is not supported\n", sfs_get_mime_type( ftype ) );
+		slog( "Clipboard copy: file format %s is not supported\n", sfs_get_mime_type( fmt ) );
 		break;
 	}
 	if( h && format && OpenClipboard( NULL ) )
@@ -2881,21 +2906,39 @@ char* sclipboard_paste( sundog_engine* s, int type, uint32_t flags )
 
 #ifdef X11
     window_manager* wm = &s->wm;
-    if( wm->dpy )
+    if( wm->dpy && wm->paste_lock == 0 )
     {
+	wm->paste_lock++;
 	XConvertSelection( wm->dpy, wm->sel_atom_clipboard, wm->sel_atom_utf8_string, wm->sel_atom_xsel_data, wm->win, CurrentTime );
-	smbox_msg* msg = smbox_get( wm->sd->mb, g_msg_id_x11_paste, 2000 );
-	if( msg )
+	bool main_thread = false;
+	if( pthread_equal( pthread_self(), wm->main_loop_thread ) ) main_thread = true;
+	smbox_msg* msg = NULL;
+	int step = 5; //ms
+	int timeout = 1000; //ms
+	for( int t = 0; t < timeout; t += step )
 	{
-	    rv = smem_strdup( "3:/sundog_clipboard" );
-	    sfs_file f = sfs_open( rv, "wb" );
-	    if( f )
+	    if( main_thread )
 	    {
-		sfs_write( msg->data, 1, smem_get_size( msg->data ), f );
-		sfs_close( f );
+    		sundog_event evt;
+	        EVENT_LOOP_BEGIN( &evt, wm );
+	        EVENT_LOOP_END( wm );
+	        //if( EVENT_LOOP_END( wm ) ) break;
 	    }
-	    smbox_remove_msg( msg );
+	    msg = smbox_get( wm->sd->mb, g_msg_id_x11_paste, step );
+	    if( msg )
+	    {
+		rv = smem_strdup( "3:/sundog_clipboard" );
+		sfs_file f = sfs_open( rv, "wb" );
+		if( f )
+		{
+		    sfs_write( msg->data, 1, smem_get_size( msg->data ), f );
+		    sfs_close( f );
+		}
+		smbox_remove_msg( msg );
+		break;
+	    }
 	}
+	wm->paste_lock--;
     }
 #endif
 
@@ -2997,7 +3040,7 @@ void send_text_to_email( sundog_engine* s, const char* email, const char* subj, 
 #endif
 }
 
-int export_import_file( sundog_engine* s, const char* filename, uint32_t flags ) //non blocking! import through the EVT_LOADSTATE
+int export_import_file( sundog_engine* s, const char* filename, uint32_t flags ) //non-blocking! import through the EVT_LOADSTATE
 {
     int rv = -1;
 #if defined(CAN_IMPORT) || defined(CAN_EXPORT) || defined(CAN_EXPORT2)
@@ -3148,6 +3191,17 @@ void matrix_4x4_ortho( float left, float right, float bottom, float top, float z
     matrix_4x4_mul( res, m, m2 );
     smem_copy( m, res, sizeof( float ) * 4 * 4 );
 }
+
+//
+// Image
+//
+
+uint8_t g_simage_pixel_format_size[ PFMT_CNT ] = 
+{
+    1, //PFMT_GRAYSCALE_8
+    4, //PFMT_RGBA_8888
+    sizeof( COLOR ) //PFMT_SUNDOG_COLOR
+};
 
 //
 // Misc

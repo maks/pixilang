@@ -1,0 +1,36 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="nightradio.androidlib"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="16"
+8-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml
+9        android:targetSdkVersion="31" />
+9-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml
+10
+11    <uses-feature
+11-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:6:5-89
+12        android:name="android.hardware.microphone"
+12-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:6:19-61
+13        android:required="false" />
+13-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:6:62-86
+14    <uses-feature
+14-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:7:5-96
+15        android:name="android.hardware.audio.low_latency"
+15-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:7:19-68
+16        android:required="false" />
+16-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:7:69-93
+17
+18    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+18-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:8:5-81
+18-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:8:22-78
+19    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+19-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:9:5-71
+19-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:9:22-68
+20    <uses-permission android:name="android.permission.WAKE_LOCK" />
+20-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:10:5-68
+20-->/home/alex/my_soft/lib_sundog/main/android/alib/src/main/AndroidManifest.xml:10:22-65
+21
+22</manifest>

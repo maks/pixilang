@@ -88,6 +88,10 @@ Other:
         #define ARCH_ARM64
 	#define ARM_VFP
     #endif
+    #ifdef __mips__
+	#define ARCH_NAME "mips"
+	#define ARCH_MIPS
+    #endif
     #ifdef __EMSCRIPTEN__
 	#define ARCH_EMSCRIPTEN 
 	#define ARCH_NAME "emscripten"
@@ -103,7 +107,7 @@ Other:
 #endif
 
 #ifdef OS_RASPBERRY_PI
-    #define OS_NAME "raspberry pi linux"
+    #define OS_NAME "raspberry pi linux (legacy)"
     #ifdef OPENGL
 	#define OPENGLES
     #endif
@@ -266,6 +270,7 @@ typedef unsigned int uint;
     namespace std
     {
 	typedef volatile int atomic_int;
+	typedef volatile uint atomic_uint;
 	typedef volatile size_t atomic_size_t;
 	enum memory_order
 	{
@@ -277,6 +282,7 @@ typedef unsigned int uint;
 	    memory_order_seq_cst
 	};
     }
+    inline void atomic_thread_fence( int order ) {};
     #define atomic_init( V, I ) { *(V) = I; }
     template <typename T> inline bool compare_and_write( volatile T* v, T old_val, T new_val )
     {
@@ -407,8 +413,8 @@ typedef unsigned int uint;
 
 struct sundog_engine;
 
-#include "file/file.h"
 #include "memory/memory.h"
+#include "file/file.h"
 #include "time/time.h"
 #include "thread/thread.h"
 #include "misc/misc.h"

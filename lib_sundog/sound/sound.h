@@ -251,7 +251,7 @@ int sundog_midi_client_open_port( sundog_midi_client* c, const char* port_name, 
 int sundog_midi_client_reopen_port( sundog_midi_client* c, int pnum );
 int sundog_midi_client_close_port( sundog_midi_client* c, int pnum );
 sundog_midi_event* sundog_midi_client_get_event( sundog_midi_client* c, int pnum );
-int sundog_midi_client_next_event( sundog_midi_client* c, int pnum );
+int sundog_midi_client_next_event( sundog_midi_client* c, int pnum ); //only after successful get_event()
 int sundog_midi_client_send_event( sundog_midi_client* c, int pnum, sundog_midi_event* evt );
 
 int device_midi_client_open( sundog_midi_client* c, const char* name );

@@ -1,6 +1,6 @@
 /*
 This file is part of the SunVox library.
-Copyright (C) 2007 - 2022 Alexander Zolotov <nightradio@gmail.com>
+Copyright (C) 2007 - 2023 Alexander Zolotov <nightradio@gmail.com>
 WarmPlace.ru
 
 MINIFIED VERSION
@@ -27,4 +27,5 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 */
 
- 
+
+

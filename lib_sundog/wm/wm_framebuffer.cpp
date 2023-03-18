@@ -1,7 +1,7 @@
 /*
     wm_framebuffer.cpp - drawing in the framebuffer
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -117,7 +117,7 @@ void fb_draw_image(
     int dest_x, int dest_y, 
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
     if( !wm->screen_is_active ) return;

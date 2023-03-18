@@ -1,13 +1,12 @@
-#ifndef __SUNVOX_ENGINE__
-#define __SUNVOX_ENGINE__
+#pragma once
 
 #include "psynth/psynth_net.h"
 
-#define SUNVOX_ENGINE_VERSION ( ( 2 << 24 ) | ( 0 << 16 ) | ( 0 << 8 ) | ( 5 << 0 ) )
-#define SUNVOX_ENGINE_VERSION_STR "v2.0e"
+#define SUNVOX_ENGINE_VERSION ( ( 2 << 24 ) | ( 1 << 16 ) | ( 0 << 8 ) | ( 2 << 0 ) )
+#define SUNVOX_ENGINE_VERSION_STR "v2.1c"
 
 //Main external defines:
-//SUNVOX_LIB - cropped version (portable library), without save/export/record functions;
+//SUNVOX_LIB - cropped version (portable library) with some limitations (no WAV export, no recording);
 //SUNVOX_GUI - full version with GUI functions;
 //PS_STYPE_* - sample type;
 
@@ -16,9 +15,10 @@
 #define MAX_UI_COMMANDS		256
 #define MAX_KBD_EVENTS		256
 #define MAX_KBD_SLOTS		64
-#define MAX_KBD_CHANNELS	32 //number of independent keyboards / Theremin voices
 #define REC_BUF_BYTES		(16*1024)
+#define MAX_PATTERN_TRACKS_BITS	5
 #define MAX_PATTERN_TRACKS	32
+typedef uint32_t 		sv_pat_track_bits; //Pattern tracks (bit per track): 1 - after noteON; 0 - after noteOFF;
 #define MODULE_LAYERS_BITS	3
 #define MAX_MODULE_LAYERS	( 1 << MODULE_LAYERS_BITS )
 #define SUNVOX_TPB		24 //ticks per beat
@@ -81,7 +81,7 @@ enum
     SUNVOX_ACTION_PAT_SHRINK,
     SUNVOX_ACTION_PAT_EXPAND,
     SUNVOX_ACTION_PAT_SLICE,
-    SUNVOX_ACTION_PAT_CHANGE_LEVELS,
+    SUNVOX_ACTION_PAT_CHANGE_TRACK,
     SUNVOX_ACTION_PAT_CHANGE_SIZE,
     SUNVOX_ACTION_PAT_CHANGE_ICON,
     SUNVOX_ACTION_PAT_CHANGE_ICON_COLOR,
@@ -126,16 +126,18 @@ enum
 
 #define NOTECMD_NOTE_OFF	128
 #define NOTECMD_ALL_NOTES_OFF	129 // send "note off" to all modules; for SunVox library only?
-#define NOTECMD_CLEAN_MODULES	130 // put all modules into standby state (stop and clear all internal buffers)
+#define NOTECMD_CLEAN_MODULES	130 // stop all modules - clear their internal buffers and put them into standby mode
 #define NOTECMD_STOP		131
 #define NOTECMD_PLAY		132
 #define NOTECMD_SET_PITCH	133 // set pitch ctl_val
 #define NOTECMD_PREV_TRACK	134 // apply effects to the previous track
 #define NOTECMD_PATPLAY_OFF	135 // disable single pattern play mode (without STOP)
-//don't use these command from the pattern (jump_request variable must be used):
+//don't use these command from the pattern (jump_request variable must be used): ===============
 #define NOTECMD_PREPARE_FOR_IMMEDIATE_JUMP 136 	// prepare for an immediate jump to line XXYY;
 						// use it ONLY before the NOTECMD_PLAY!
 #define NOTECMD_JUMP		137 // jump to line XXYY
+//==============================================================================================
+#define NOTECMD_CLEAN_MODULE	140 // stop the module - clear its internal buffers and put it into standby mode
 
 struct sunvox_note
 {
@@ -236,7 +238,7 @@ struct sunvox_pattern_info
     int		    	x, y;			//Pattern position: X - line; Y - supertrack/32
     int		    	start_x, start_y;	//Used in timeline editor when user drags the pattern
     int		    	state_ptr;		//Pointer to structure in pat_state[] array
-    uint32_t		track_status; 		//Pattern tracks (bit per track): 1 - after noteON; 0 - after noteOFF;
+    sv_pat_track_bits	track_status; 		//Pattern tracks (bit per track): 1 - after noteON; 0 - after noteOFF;
 };
 
 #define EFF_FLAG_TONE_PORTA			( 1 << 0 )
@@ -271,7 +273,7 @@ struct sunvox_track_eff
 struct sunvox_pattern_state
 {
     sunvox_track_eff	effects[ MAX_PATTERN_TRACKS ];
-    uint32_t		track_status; //Pattern tracks (bit per track): 1 - after noteON; 0 - after noteOFF;
+    sv_pat_track_bits	track_status; //Pattern tracks (bit per track): 1 - after noteON; 0 - after noteOFF;
     int16_t	    	track_module[ MAX_PATTERN_TRACKS ]; //Module number (for noteON/noteOFF) for each channel; -1 = undefined
     bool 		busy;
     uint8_t		mutable_tracks; //The number of tracks, the state of which may change at the moment (current line)
@@ -280,30 +282,45 @@ struct sunvox_pattern_state
     #error Not enough bits for tracks in sunvox_pattern_state, PSYNTH_EVT_ID_INC() and sunvox_pattern_info
 #endif
 
-#define SUNVOX_KBD_FLAG_HARD			( 1 << 0 ) //hardware keyboard (MIDI, PC); .v is the key code or the note number
-#define SUNVOX_KBD_FLAG_ON			( 1 << 1 ) //note ON / OFF
-#define SUNVOX_KBD_FLAG_NOTE			( 1 << 2 ) //.v is note number
-#define SUNVOX_KBD_FLAG_KEY			( 1 << 3 ) //.v is key code
-#define SUNVOX_KBD_FLAG_THEREMIN		( 1 << 4 )
-#define SUNVOX_KBD_FLAG_NOREPEAT		( 1 << 5 ) //ignore repeated note ON on the same slot (voice); only works if SUNVOX_KBD_FLAG_THEREMIN is not set;
-#define SUNVOX_KBD_FLAG_ALWAYS_SET_VELOCITY	( 1 << 6 )
-#define SUNVOX_KBD_FLAG_SPECIFIC_MODULE_ONLY	( 1 << 7 ) //only for .mod; otherwise the slots will not be divided by mod_num
-#define SUNVOX_KBD_FLAG_CHANNEL_OFFSET		8
-#define SUNVOX_KBD_FLAG_CHANNEL_MASK		( ( MAX_KBD_CHANNELS - 1 ) << SUNVOX_KBD_FLAG_CHANNEL_OFFSET )
-//Channel:
-// for keyboard: independent keyboard number OR channel number for MIDI evts;
-// for Theremin: voice number;
-// virtual_pat track number will be assigned in sunvox_handle_kbd_event();
-//MIDI evt flags:
-// SUNVOX_KBD_FLAG_NOTE | SUNVOX_KBD_FLAG_HARD
+#define SUNVOX_KBD_FLAG_ON			( 1 << 0 ) //note ON / OFF
+#define SUNVOX_KBD_FLAG_NOREPEAT		( 1 << 1 ) //don't play the same repeated note ON (without note OFF) on the same slot; just ignore it;
+							   //not compatible with SUNVOX_KBD_VTYPE_PITCH;
+//#define SUNVOX_KBD_FLAG_ALWAYS_SET_VELOCITY	( 1 << 2 )
+#define SUNVOX_KBD_FLAG_SPECIFIC_MODULE_ONLY	( 1 << 3 ) //only for .mod; otherwise the slots will not be divided by mod_num
+#define SUNVOX_KBD_FLAG_PLAY_ONLY		( 1 << 4 ) //no edit/save for this event
+#define SUNVOX_KBD_FLAG_TYPE_OFFSET		5
+#define SUNVOX_KBD_FLAG_TYPE_BITS		3
+#define SUNVOX_KBD_FLAG_TYPE_MASK		( ( ( 1 << SUNVOX_KBD_FLAG_TYPE_BITS ) - 1 ) << SUNVOX_KBD_FLAG_TYPE_OFFSET )
+    #define SUNVOX_KBD_TYPE_PC				0 //PC keyboard (default)
+    #define SUNVOX_KBD_TYPE_ONSCREEN			1 //on-screen keyboard
+    #define SUNVOX_KBD_TYPE_THEREMIN			2 //Touch Theremin (on-screen)
+    #define SUNVOX_KBD_TYPE_MIDI			3 //external MIDI source
+    #define SUNVOX_KBD_TYPE_BRUSH			4 //brush preview
+#define SUNVOX_KBD_FLAG_VTYPE_OFFSET		8
+#define SUNVOX_KBD_FLAG_VTYPE_BITS		2
+#define SUNVOX_KBD_FLAG_VTYPE_MASK		( ( ( 1 << SUNVOX_KBD_FLAG_VTYPE_BITS ) - 1 ) << SUNVOX_KBD_FLAG_VTYPE_OFFSET )
+    #define SUNVOX_KBD_VTYPE_NOTE			0 //.v = note (default)
+    #define SUNVOX_KBD_VTYPE_PITCH			1 //.v = pitch
+#define SUNVOX_KBD_FLAG_CHANNEL_OFFSET		10
+#define SUNVOX_KBD_FLAG_CHANNEL_MASK		( ( MAX_PATTERN_TRACKS - 1 ) << SUNVOX_KBD_FLAG_CHANNEL_OFFSET )
+#define SUNVOX_KBD_FLAG_FTRACK_FIRST		( 1 << ( SUNVOX_KBD_FLAG_CHANNEL_OFFSET + MAX_PATTERN_TRACKS_BITS ) )
+#define SUNVOX_KBD_FLAG_FTRACK_OFFSET		( SUNVOX_KBD_FLAG_CHANNEL_OFFSET + MAX_PATTERN_TRACKS_BITS + 1 )
+#define SUNVOX_KBD_FLAG_FTRACK_MASK		( ( MAX_PATTERN_TRACKS - 1 ) << SUNVOX_KBD_FLAG_FTRACK_OFFSET )
+/*
+CHANNEL:
+  if vtype == NOTE: channel = source ID or MIDI channel;
+  if vtype == PITCH: channel = voice number;
+FTRACK_FIRST: (0/1) first track of the new chord (virtuat_pat was empty before this note)
+FTRACK: final virtual_pat track number (assigned in sunvox_handle_kbd_event()).
+*/
 
 struct sunvox_kbd_event
 {
-    int 		v;
+    int 		v; //note number or some other value (see the flags)
     uint8_t 		vel; //0...128
     uint16_t 		mod;
     uint 		flags;
-    ticks_hr_t 		t; //0 = now
+    ticks_hr_t 		t; //0 = as soon as possible
 };
 
 struct sunvox_kbd_slot
@@ -324,6 +341,7 @@ struct sunvox_kbd_events
     int			prev_event_line; //Line number for the prev. event (for keyboard notes only)
     sunvox_kbd_slot	slots[ MAX_KBD_SLOTS ];
     uint		slots_count;
+    uint		vel; //global keyboard velocity (normal = 128)
 };
 
 struct sunvox_psynth_event
@@ -549,7 +567,7 @@ struct sunvox_engine
     int				cur_layer;
 
 #ifdef SUNVOX_GUI
-    sundog_image*       	icons_map;
+    sdwm_image*       		icons_map;
     int8_t*               	icons_flags;
     volatile bool		check_timeline_cursor;
     volatile bool 		center_timeline_request;
@@ -557,7 +575,7 @@ struct sunvox_engine
 
     sunvox_pattern_state	virtual_pat_state;
     sunvox_pattern_info		virtual_pat_info;
-    int				virtual_pat_tracks; //active tracks
+    int				virtual_pat_tracks; //number of active tracks in the virtual pattern
 
     //Any user commands (usually Stop/Play/TPL/BPM/Ctl/...) ->
     // -> sunvox_send_user_command() ->
@@ -695,6 +713,8 @@ int sunvox_action_handler( UNDO_HANDLER_PARS );
 //#define SUNVOX_FLAG_DONT_STOP_ON_JUMP           ( 1 << ? ) //don't turn off all notes before jumping to a certain point (line number) in the Timeline
 #define SUNVOX_FLAG_NO_TONE_PORTA_ON_TICK0	( 1 << 16 ) //for compatibility with old trackers
 #define SUNVOX_FLAG_NO_VOL_SLIDE_ON_TICK0	( 1 << 17 ) //for compatibility with old trackers
+#define SUNVOX_FLAG_KBD_ROUNDROBIN		( 1 << 18 ) //virtual pattern track allocation algorithm = Round-robin; instead of default tight packing;
+#define SUNVOX_FLAG_EXPORT			( 1 << 19 ) //set during sunvox_export_to_wav()
 
 int sunvox_global_init( void );
 int sunvox_global_deinit( void );
@@ -707,6 +727,8 @@ void sunvox_engine_init(
     void* stream_control_data,
     sunvox_engine* s );
 void sunvox_engine_close( sunvox_engine* s );
+
+void sunvox_rename( sunvox_engine* s, const char* proj_name );
 
 //SunVox engine inside the PSynth module:
 psynth_sunvox* psynth_sunvox_new( psynth_net* pnet, uint mod_num, uint sunvox_engines_count, uint flags ); //flags - additional flags (SUNVOX_FLAG_*)
@@ -864,7 +886,7 @@ int load_block( sunvox_load_state* state );
 
 int sunvox_load_proj_from_fd( sfs_file f, uint load_flags, sunvox_engine* s );
 int sunvox_load_proj( const char* name, uint load_flags, sunvox_engine* s );
-bool sunvox_proj_filetype_supported( sfs_file_type type );
+bool sunvox_proj_filefmt_supported( sfs_file_fmt fmt );
 
 //Save project:
 
@@ -950,6 +972,9 @@ void sunvox_pattern_set_number_of_channels( int pat_num, int cnum, sunvox_engine
 int sunvox_pattern_set_number_of_lines( int pat_num, int lnum, bool rescale_content, sunvox_engine* s );
 void sunvox_check_solo_mode( sunvox_engine* s );
 int sunvox_pattern_shift( int pat_num, int track, int line, int lines, int cnt, int polyrhythm_len, sunvox_engine* s );
+int sunvox_check_pattern_evts( int pat_num, int x, int y, int xsize, int ysize, sunvox_engine* sv ); //retval: column bits (NN,VV,MM,CC,EE,XX,YY)
+int sunvox_save_pattern_buf( const char* filename, sunvox_note* buf, int xsize, int ysize );
+sunvox_note* sunvox_load_pattern_buf( const char* filename, int* xsize, int* ysize );
 
 //Playing:
 
@@ -960,6 +985,7 @@ void sunvox_play_stop( sunvox_engine* s );
 void sunvox_play( int pos, bool jump_to_pos, int pat_num, sunvox_engine* s );
 void sunvox_rewind( int pos, int pat_num, sunvox_engine* s );
 int sunvox_stop( sunvox_engine* s );
+int sunvox_stop_and_cancel_record( sunvox_engine* s );
 
 //Recording:
 
@@ -967,7 +993,7 @@ void sunvox_record_write_byte( uint8_t v, sunvox_engine* s );
 void sunvox_record_write_int( uint v, sunvox_engine* s );
 void sunvox_record_write_time( int rtype, int t, uint flags, sunvox_engine* s );
 bool sunvox_record_is_ready_for_event( sunvox_engine* s );
-void sunvox_record_stop( sunvox_engine* s );
+void sunvox_record_stop( bool cancel, sunvox_engine* s );
 void sunvox_record( sunvox_engine* s );
 
 //Audio callback:
@@ -984,5 +1010,3 @@ bool sunvox_render_piece_of_sound( sunvox_render_data* rdata, sunvox_engine* s )
 #define SUNVOX_VF_CHAN_LINENUM		2 //Line number in the 27.5 fixed point format
 
 int sunvox_frames_get_value( int channel, ticks_hr_t t, sunvox_engine* s );
-
-#endif

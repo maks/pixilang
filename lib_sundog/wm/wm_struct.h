@@ -237,8 +237,10 @@ enum wm_string
     STR_WM_EDIT,
     STR_WM_NEW,
     STR_WM_DELETE,
+    STR_WM_DELETE2,
     STR_WM_RENAME,
-    STR_WM_RENAME_FILE,
+    STR_WM_RENAME_FILE2,
+    STR_WM_RENAME_DIR2,
     STR_WM_CUT,
     STR_WM_CUT2,
     STR_WM_COPY,
@@ -247,8 +249,11 @@ enum wm_string
     STR_WM_PASTE,
     STR_WM_PASTE2,
     STR_WM_CREATE_DIR,
-    STR_WM_DELETE_DIR,
+    STR_WM_DELETE_DIR2,
+    STR_WM_DELETE_CUR_DIR,
+    STR_WM_DELETE_CUR_DIR2,
     STR_WM_RECURS,
+    STR_WM_ARE_YOU_SURE,
     STR_WM_ERROR,
     STR_WM_NOT_FOUND,
     STR_WM_LOG,
@@ -308,6 +313,8 @@ enum wm_string
     STR_WM_SHOW_ZOOM_BUTTONS,
     STR_WM_SHOW_KBD,
     STR_WM_HIDE_SYSTEM_BARS,
+    STR_WM_LOWRES,
+    STR_WM_LOWRES_IOS_NOTICE,
     STR_WM_WINDOW_PARS,
     STR_WM_WINDOW_WIDTH,
     STR_WM_WINDOW_HEIGHT,
@@ -323,6 +330,8 @@ enum wm_string
     STR_WM_FONT_MEDIUM_MONO,
     STR_WM_FONT_BIG,
     STR_WM_FONT_SMALL,
+    STR_WM_FONT_UPSCALING,
+    STR_WM_FONT_FSCALING,
     STR_WM_LANG,
     STR_WM_DRIVER,
     STR_WM_OUTPUT,
@@ -338,6 +347,7 @@ enum wm_string
     STR_WM_OPTIONS,
     STR_WM_ADD_OPTIONS,
     STR_WM_ADD_OPTIONS_ASIO,
+    STR_WM_MEASUREMENT_MODE,
     STR_WM_CUR_DRIVER,
     STR_WM_CUR_SAMPLE_RATE,
     STR_WM_CUR_LATENCY,
@@ -385,7 +395,8 @@ enum wm_string
 #define WIN_INIT_FLAG_NOWINDOW		( 1 << 12 )
 #define WIN_INIT_FLAG_NOSYSBARS		( 1 << 13 )
 #define WIN_INIT_FLAG_SHRINK_DESKTOP_TO_SAFE_AREA ( 1 << 14 )
-#define WIN_INIT_FLAGOFF		15
+#define WIN_INIT_FLAG_NO_FONT_UPSCALE	( 1 << 15 )
+#define WIN_INIT_FLAGOFF		16
 #define WIN_INIT_FLAGOFF_ANGLE		( WIN_INIT_FLAGOFF ) //2bits (0..3)
 #define WIN_INIT_FLAGOFF_ZOOM           ( WIN_INIT_FLAGOFF + 2 ) //3bits (0..7)
 
@@ -416,7 +427,8 @@ enum
     EVT_SCREENUNFOCUS,
     EVT_SUSPEND, //after the "suspended" parameter change
     EVT_DEVSUSPEND, //after the "devices_suspended" parameter change; before device(s) stop/play;
-    EVT_CLOSEREQUEST, //"Close Window" request; can be ignored
+    EVT_CLOSEREQUEST, //CLOSE WINDOW request; can be ignored
+    EVT_HELPREQUEST, //HELP request; can be ignored
     EVT_LOADSTATE, //"Load App State" request: the app should open the document OR the module should restore its state (previously stored in the host)
     EVT_SAVESTATE, //"Save App State" request: the module should save its state for the host
     EVT_QUIT, //"Close Application" request; e.g. when user click Main Window Close button; can be ignored
@@ -426,6 +438,7 @@ enum
     EVT_PIXICMD, //command from Pixilang to SunDog-based app
     EVT_SUNVOXCMD, //command from SunVox to SunDog-based app
     EVT_REINIT, //UI reinit request (example: from SunVox UI to PSynth module UI)
+    EVT_OPT, //toggle options
     EVT_USER //other user-defined event types: EVT_USER + x
 };
 
@@ -438,11 +451,12 @@ enum
 #define EVT_FLAG_MODS			( EVT_FLAG_SHIFT | EVT_FLAG_CTRL | EVT_FLAG_ALT | EVT_FLAG_MODE | EVT_FLAG_CMD )
 #define EVT_FLAG_DOUBLECLICK		( 1 << 5 )
 #define EVT_FLAG_DONTDRAW		( 1 << 6 )
-#define EVT_FLAGS_NUM			7 //number of flags for the user
+#define EVT_FLAG_REPEAT			( 1 << 7 ) //this is not the first EVT_BUTTONDOWN, but a repeat, between the first press and the final release
+#define EVT_FLAGS_NUM			8 //number of flags available for the user
 #define EVT_FLAGS_MASK                  ( ( 1 << EVT_FLAGS_NUM ) - 1 )
 //other flags, not available for the user:
-#define EVT_FLAG_OPTIMIZED		( 1 << 7 )
-#define EVT_FLAG_AUTOREPEAT             ( 1 << 8 ) //for EVT_BUTTONDOWN and EVT_BUTTONUP
+#define EVT_FLAG_OPTIMIZED		( 1 << 8 )
+#define EVT_FLAG_AUTOREPEAT             ( 1 << 9 ) //for EVT_BUTTONDOWN and EVT_BUTTONUP
 
 //Mouse buttons:
 #define MOUSE_BUTTON_LEFT 		1
@@ -489,7 +503,7 @@ enum
     KEY_PAGEUP,
     KEY_PAGEDOWN,
     KEY_CAPS,
-    KEY_MIDI_NOTE,
+    KEY_MIDI_NOTE, //x = note or ctl; y = channel;
     KEY_MIDI_CTL,
     KEY_MIDI_NRPN,
     KEY_MIDI_RPN,
@@ -521,7 +535,8 @@ enum
 #define DECOR_FLAG_MAXIMIZED		( 1 << 5 )
 #define DECOR_FLAG_WITH_CLOSE		( 1 << 6 )
 #define DECOR_FLAG_WITH_MINIMIZE	( 1 << 7 )
-#define DECOR_FLAG_CLOSE_ON_ESCAPE	( 1 << 8 )
+#define DECOR_FLAG_WITH_HELP		( 1 << 8 )
+#define DECOR_FLAG_CLOSE_ON_ESCAPE	( 1 << 9 )
 
 #define BORDER_OPACITY			32
 #define BORDER_COLOR_WITHOUT_OPACITY	wm->color3
@@ -541,6 +556,10 @@ enum
 #define TEXT_YSIZE_COEFF		0.19
 
 #define DEFAULT_DOUBLE_CLICK_TIME	200
+#define DEFAULT_KBD_AUTOREPEAT_DELAY	(1000/3)
+#define DEFAULT_KBD_AUTOREPEAT_FREQ	20
+#define DEFAULT_MOUSE_AUTOREPEAT_DELAY	(1000/2)
+#define DEFAULT_MOUSE_AUTOREPEAT_FREQ	20
 
 typedef size_t                          WCMD;
 #define CWIN		    		(WCMD)30000
@@ -566,11 +585,11 @@ typedef size_t                          WCMD;
 #define IMAGE_NATIVE_RGB		( 1 << 0 )
 #define IMAGE_ALPHA8			( 1 << 1 ) //only alpha channel
 #define IMAGE_STATIC_SOURCE		( 1 << 2 ) //static external source
-#define IMAGE_INTERPOLATION		( 1 << 3 )
+#define IMAGE_INTERP			( 1 << 3 ) //interpolation
 #define IMAGE_CLEAN			( 1 << 4 ) //new image must be clean
-#define IMAGE_NO_XREPEAT		( 1 << 5 ) //no X repeat; may be enabled by default
+#define IMAGE_NO_XREPEAT		( 1 << 5 ) //default value is unknown, but we can force this
 #define IMAGE_NO_YREPEAT		( 1 << 6 ) //...
-#define IMAGE_XREPEAT			( 1 << 7 ) //with X repeat; may be enabled by default
+#define IMAGE_XREPEAT			( 1 << 7 ) //...
 #define IMAGE_YREPEAT			( 1 << 8 ) //...
 
 #define VCAP_FLAG_AUDIO_FROM_INPUT	( 1 << 0 )
@@ -580,18 +599,18 @@ struct sundog_timer;
 struct sundog_window;
 struct sundog_event;
 
-struct sundog_rect
+struct sdwm_rect
 {
     int x, y, w, h;
 };
 
-struct sundog_image
+struct sdwm_image
 {
     window_manager* 	wm;
     int			xsize;
     int			ysize;
     void*		data;
-    int			pixelsize;
+    int			pixelsize; //number of bytes per pixel
     COLOR		color;
     COLOR		backcolor;
     uint8_t		opacity; //0..255
@@ -603,9 +622,9 @@ struct sundog_image
     uint		flags;
 };
 
-struct sundog_image_scaled
+struct sdwm_image_scaled
 {
-    sundog_image*	img;
+    sdwm_image*	img;
     int 		src_x; //fixed point (IMG_PREC)
     int 		src_y; //fixed point
     int 		src_xsize; //fixed point
@@ -651,13 +670,13 @@ struct sundog_keymap
 {
     bool 			silent;
     sundog_keymap_section*	sections;
-    uint			midi_notes[ 128 / ( 8 * sizeof( uint ) ) ];
+    uint32_t			midi_notes[ ( 128 * 16 ) / 32 ]; //128 notes * 16 channels: 0 - free; 1 - linked to some shortcut;
 };
 
 #define WBD_FLAG_ONE_COLOR		1
 #define WBD_FLAG_ONE_OPACITY		2
 
-struct sundog_vertex
+struct sdwm_vertex
 {
     int16_t x;
     int16_t y;
@@ -665,26 +684,28 @@ struct sundog_vertex
     uint8_t t;
 };
 
-struct sundog_polygon
+struct sdwm_polygon
 {
     int vnum;
-    sundog_vertex* v;
+    sdwm_vertex* v;
 };
 
 #define WIN_FLAG_ALWAYS_INVISIBLE	( 1 << 0 )
 #define WIN_FLAG_ALWAYS_ON_TOP		( 1 << 1 )
 #define WIN_FLAG_ALWAYS_UNFOCUSED	( 1 << 2 )
-#define WIN_FLAG_TRASH			( 1 << 3 )
-#define WIN_FLAG_DOUBLECLICK		( 1 << 4 )
-#define WIN_FLAG_DONT_USE_CONTROLLERS	( 1 << 5 )
-#define WIN_FLAG_UNFOCUS_HANDLING	( 1 << 6 )
-#define WIN_FLAG_FOCUS_HANDLING		( 1 << 7 )
-#define WIN_FLAG_ALWAYS_HANDLE_DRAW_EVT	( 1 << 8 )
-#define WIN_FLAG_BEFORERESIZE_ENABLED	( 1 << 9 )
-#define WIN_FLAG_AFTERRESIZE_ENABLED	( 1 << 10 )
+#define WIN_FLAG_TRANSPARENT_FOR_FOCUS	( 1 << 3 )
+#define WIN_FLAG_TRASH			( 1 << 4 )
+#define WIN_FLAG_DOUBLECLICK		( 1 << 5 )
+#define WIN_FLAG_DONT_USE_CONTROLLERS	( 1 << 6 )
+#define WIN_FLAG_UNFOCUS_HANDLING	( 1 << 7 )
+#define WIN_FLAG_FOCUS_HANDLING		( 1 << 8 )
+#define WIN_FLAG_ALWAYS_HANDLE_DRAW_EVT	( 1 << 9 )
+#define WIN_FLAG_BEFORERESIZE_ENABLED	( 1 << 10 )
+#define WIN_FLAG_AFTERRESIZE_ENABLED	( 1 << 11 )
 
 typedef int (*win_handler_t)( sundog_event*, window_manager* );
 typedef int (*win_action_handler_t)( void*, WINDOWPTR, window_manager* );
+typedef int (*win_action_handler2_t)( void*, WINDOWPTR );
 
 struct sundog_window
 {
@@ -706,7 +727,7 @@ struct sundog_window
     win_handler_t 	win_handler;
     void*		data;
 
-    WCMD*		x1com; //Controller of the window coordinate x1 - sequence of commands for the controller VM (cvm)
+    WCMD*		x1com; //x1 window controller - sequence of the commands (controller virtual machine (cvm))
     WCMD*		y1com; //...
     WCMD*		x2com; //...
     WCMD*		y2com; //...
@@ -768,19 +789,11 @@ enum
     DIALOG_ITEM_CHECKBOX
 };
 
-#define DIALOG_ITEM_FLAG_FOCUS		( 1 << 0 )
-#define DIALOG_ITEM_FLAG_COLUMNS_OFFSET	1
-#define DIALOG_ITEM_FLAG_COLUMNS_MASK	15
-#define DIALOG_ITEM_FLAG_2COLUMNS	( 1 << DIALOG_ITEM_FLAG_COLUMNS_OFFSET )
-#define DIALOG_ITEM_FLAG_3COLUMNS	( 2 << DIALOG_ITEM_FLAG_COLUMNS_OFFSET )
-
-#define DIALOG_ITEM_EMPTY_LINE_SIZE	wm->interelement_space
-#define DIALOG_ITEM_TEXT_SIZE 		wm->text_ysize
-#define DIALOG_ITEM_NUMBER_SIZE 	DIALOG_ITEM_TEXT_SIZE
-#define DIALOG_ITEM_SLIDER_SIZE 	wm->controller_ysize
-#define DIALOG_ITEM_LABEL_SIZE 		font_char_y_size( win->font, wm )
-#define DIALOG_ITEM_POPUP_SIZE 		wm->popup_button_ysize
-#define DIALOG_ITEM_CHECKBOX_SIZE 	DIALOG_ITEM_TEXT_SIZE
+#define DIALOG_ITEM_FLAG_FOCUS				( 1 << 0 )
+#define DIALOG_ITEM_FLAG_COLUMNS_OFFSET			1
+#define DIALOG_ITEM_FLAG_COLUMNS_MASK			15
+#define DIALOG_ITEM_FLAG_2COLUMNS			( 1 << DIALOG_ITEM_FLAG_COLUMNS_OFFSET )
+#define DIALOG_ITEM_FLAG_3COLUMNS			( 2 << DIALOG_ITEM_FLAG_COLUMNS_OFFSET )
 
 struct dialog_item
 {
@@ -790,9 +803,9 @@ struct dialog_item
     int			int_val;
     int			normal_val;
     char*		str_val; //DIALOG_ITEM_TEXT will clean this string (WITHOUT FREEING!) and create its dynamic copy (which you must remove manually)
-    const char*		menu;
+    const char*		menu; //will be set to NULL after each init/reinit
     uint32_t		id;
-    uint32_t		flags; //DIALOG_ITEM_FLAG_xxx
+    uint32_t		flags; //DIALOG_ITEM_FLAG_*
 
     WINDOWPTR		win;
 };
@@ -807,6 +820,7 @@ enum {
 enum {
     GL_PROG_UNI_TRANSFORM1 = 0,
     GL_PROG_UNI_TRANSFORM2,
+    GL_PROG_UNI_XY_ADD,
     GL_PROG_UNI_COLOR,
     GL_PROG_UNI_TEXTURE,
     GL_PROG_UNI_MAX
@@ -818,7 +832,8 @@ struct gl_program_struct
     GLint		uniforms[ GL_PROG_UNI_MAX ]; //Global parameters for all vertex and fragment shaders
     uint		attributes_enabled; //Enabled attributes bits: ( 1 << GL_PROG_ATT_POSITION ), etc.
     int			transform_counter;
-    //Don't change the GL_PROG_UNI_COLOR if it's equal to the following:
+    float		xy_add;
+    //Check the change of the following variables before changing GL_PROG_UNI_COLOR:
     COLOR		color;
     uint8_t		opacity;
 };
@@ -853,7 +868,7 @@ typedef void (*tdevice_draw_image)(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm );
 typedef void (*tdevice_screen_lock)( WINDOWPTR win, window_manager* wm );
 typedef void (*tdevice_screen_unlock)( WINDOWPTR win, window_manager* wm );
@@ -865,6 +880,29 @@ struct dstack_item //dialog stack
 {
     WINDOWPTR win; //parent dialog window (not decorator)
     WINDOWPTR focus; //element in focus
+};
+
+struct sdwm_font
+{
+    const FONT_LINE_TYPE*	data; //font source (binary data)
+    sdwm_image* 		img;
+
+    //grid inside img:
+    uint16_t			grid_xoffset;
+    uint16_t			grid_yoffset;
+    uint16_t 			grid_cell_xsize;
+    uint16_t 			grid_cell_ysize;
+
+    //Original char size:
+    //may be != char size from the OpenGL texture;
+    //final char size on the screen = char_size * wm->cur_font_scale * wm->font_zoom / 256;
+    uint8_t			char_xsize[ 256 ];
+    uint8_t			char_ysize;
+
+    //Upscaled char size on the OpenGL texture:
+    //may be != original char size;
+    uint16_t			char_xsize2[ 256 ];
+    uint16_t			char_ysize2;
 };
 
 struct window_manager
@@ -889,7 +927,10 @@ struct window_manager
     sundog_event    	events[ WM_EVENTS ];
     smutex    		events_mutex;
     sundog_event 	frame_evt;
-    sundog_event 	empty_evt; //Fields that can be changed: win; type; time;
+    sundog_event 	empty_evt; //Empty event. The following fields can be modified: win; type; time;
+    uint16_t		prev_btn_key;
+    uint16_t		prev_btn_scancode;
+    uint16_t		prev_btn_flags;
     
 #ifdef MULTITOUCH
     sundog_event	touch_evts[ WM_TOUCH_EVENTS ];
@@ -911,13 +952,17 @@ struct window_manager
     
     int                 autorepeat_timer; //for EVT_BUTTONDOWN and EVT_BUTTONUP
     sundog_event        autorepeat_timer_evt;
+    int			kbd_autorepeat_delay; //(ms) delay between the key press and the first repeat
+    int			kbd_autorepeat_freq; //(Hz)
+    int			mouse_autorepeat_delay; //(ms) delay between the click and the first repeat
+    int			mouse_autorepeat_freq; //(Hz)
 
     int			desktop_xsize; //may be != screen_xsize; for example, if the safe area is used; initialized in desktop_handler();
     int			desktop_ysize; //...
     int             	screen_xsize;
     int             	screen_ysize;
 #ifdef SCREEN_SAFE_AREA_SUPPORTED
-    sundog_rect		screen_safe_area;
+    sdwm_rect		screen_safe_area;
 #endif
     int			screen_angle; //UI rotation (degrees = acreen_angle * 90; counterclockwise (против часовой стрелки)) without native window rotation;
     bool		screen_angle_lock;
@@ -970,7 +1015,7 @@ struct window_manager
     COLOR		scroll_pressed_color;
     int			scroll_pressed_color_opacity;
 
-    sundog_image*	texture0;
+    sdwm_image*	texture0;
 
     int			control_type;
     int			double_click_time; //ms
@@ -1008,17 +1053,15 @@ struct window_manager
     uint8_t		cur_opacity;
     uint		cur_flags;
     void*		points_array;
-    sundog_vertex 	poly_vertices1[ 8 ];
-    sundog_vertex 	poly_vertices2[ 8 ];
+    sdwm_vertex 	poly_vertices1[ 8 ];
+    sdwm_vertex 	poly_vertices2[ 8 ];
 
-    sundog_image* 	font_img[ WM_FONTS ];
-    int 		font_cxsize[ WM_FONTS ];
-    int 		font_cysize[ WM_FONTS ];
-    int			font_zoom; //Global font zoom
+    sdwm_font		fonts[ WM_FONTS ];
+    int			font_zoom; //Global font zoom: 1.0 = 256
     int8_t		default_font; //by default = font_big
     int8_t		font_medium_mono; //pat.editor
     int8_t		font_big; //main
-    int8_t		font_small; //controllers
+    int8_t		font_small; //controllers and other similar two-line (label+value) UI elements
     //int8_t		font_smallest; //small labels
 
     int		    	pen_x;
@@ -1039,6 +1082,8 @@ struct window_manager
     char* 		fdialog_copy_file_name;  // 1:/dir/file.txt
     char* 		fdialog_copy_file_name2; // file.txt
     bool 		fdialog_cut_file_flag;
+    bool		fdialog_deldir_confirm;
+    bool		fdialog_delfile_confirm;
     WINDOWPTR 		prefs_win;
     const char* 	prefs_section_names[ 32 ];
     int 		prefs_sections;
@@ -1055,17 +1100,14 @@ struct window_manager
     int 			opt_divider_scroll_min;
     int 			opt_divider_scroll_max;
     bool 			opt_divider_vertical : 1;
-    bool 			opt_divider_with_time : 1;
     bool 			opt_text_ro : 1; //Read Only
     int 			opt_text_numeric;
     int 			opt_text_num_min;
     int 			opt_text_num_max;
     bool 			opt_text_num_hide_zero : 1;
-    int 			(*opt_button_end_handler)( void*, WINDOWPTR );
-    void* 			opt_button_end_handler_data;
     uint32_t 			opt_button_flags;
-    sundog_image_scaled        	opt_button_image1;
-    sundog_image_scaled        	opt_button_image2;
+    sdwm_image_scaled        	opt_button_image1;
+    sdwm_image_scaled        	opt_button_image2;
     bool 			opt_scrollbar_vertical : 1;
     bool 			opt_scrollbar_reverse : 1;
     bool 			opt_scrollbar_compact : 1;
@@ -1103,7 +1145,7 @@ struct window_manager
     int		    	real_window_width;
     int		    	real_window_height;
 #ifdef SCREEN_SAFE_AREA_SUPPORTED
-    sundog_rect		real_window_safe_area;
+    sdwm_rect		real_window_safe_area;
 #endif
 
     //DEVICE DEPENDENT PART:
@@ -1141,8 +1183,8 @@ struct window_manager
     gl_program_struct*	gl_current_prog;
     gl_program_struct*	gl_prog_solid;
     gl_program_struct*	gl_prog_gradient;
-    gl_program_struct*	gl_prog_tex_alpha;
-    gl_program_struct*	gl_prog_tex_rgb;
+    gl_program_struct*	gl_prog_tex_alpha; //texture: rgb = 1.0; a = ...;
+    gl_program_struct*	gl_prog_tex_rgb; //texture: rgb = ...; a = 1.0;
     void*		gl_points_array;
     bool		gl_no_points; //no GL_POINTS
     int16_t 		gl_array_s[ 16 ];
@@ -1201,6 +1243,8 @@ struct window_manager
     Atom		sel_atom_targets;
     Atom		sel_atom_text;
     Atom		sel_atom_utf8_string;
+    int			paste_lock;
+    pthread_t		main_loop_thread;
     Window          	win;
     GC              	win_gc;
     XImage*		win_img;

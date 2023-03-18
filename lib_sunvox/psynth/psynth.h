@@ -189,8 +189,6 @@ Get int frequency (in Hz) from the PITCH64 (one semitone = 64)
     v1_p &= ( 1 << PSYNTH_FP64_PREC ) - 1; \
 }
 
-#define PSYNTH_MODULE_HANDLER_PARAMETERS int mod_num, psynth_event* event, psynth_net* pnet
-
 enum psynth_buf_state
 {
     PS_BUF_SILENCE = 0, 	//silence; buffer is filled with unknown data
@@ -244,6 +242,14 @@ enum psynth_command
 
     PS_CMD_READ_CURVE,		//input: evt.curve - data ptr; .id = curve num; .offset = number of samples to write/read; output: number of samples processed successfully
     PS_CMD_WRITE_CURVE,
+
+    /*
+    Enable/Disable additional MIDI OUT message support.
+    By default, the app can receive MIDI messages "Program Change", "Channel Pressure" and "Pitch Bend Change", but can't send them.
+    This command allows you to temporarily enable support for these messages for the specific module.
+    After enabling if you change the value of the controller evt->midimsg_support.ctl, the MIDI message evt->midimsg_support.msg will be sent instead of the "Control Change" command.
+    */
+    PS_CMD_MIDIMSG_SUPPORT,
 
     PSYNTH_COMMANDS
 };
@@ -308,10 +314,12 @@ struct psynth_ctl
     PS_CTYPE	max;
     PS_CTYPE	def;
     PS_CTYPE*	val;
-    PS_CTYPE	show_offset;
+    PS_CTYPE	show_offset; //displayed value = val + show_offset;
     PS_CTYPE	normal_value; //100% or some normal point (e.g. middle value for panning);
     uint32_t	flags;
-    uint8_t	type; //0 - normal (volume, frequency, resonance etc.); 1 - selector (number of harmonics, waveform type etc.);
+    uint8_t	type; //0 - normal (volume, frequency, resonance etc.);
+		      //    scaled range 0...32768 must be used when sending automation commands;
+		      //1 - selector (number of harmonics, waveform type etc.);
     uint8_t	group;
     uint32_t	midi_pars1; //MIDI IN
     uint32_t	midi_pars2; //MIDI IN
@@ -467,6 +475,20 @@ enum
 #define PSYNTH_MIDI_IN_FLAG_CHANNEL_MASK	( 31 << PSYNTH_MIDI_IN_FLAG_CHANNEL_OFFSET ) //5 bits: 0 - ANY; 1 - first channel; ... 16 - last channel;
 #define PSYNTH_MIDI_IN_FLAG_NEVER		( 1 << ( PSYNTH_MIDI_IN_FLAG_CHANNEL_OFFSET + 5 ) ) //Never accept MIDI IN data
 
+#define PSYNTH_MODULE_HANDLER_PARAMETERS int mod_num, psynth_event* event, psynth_net* pnet
+typedef PS_RETTYPE (*psynth_handler_t)( PSYNTH_MODULE_HANDLER_PARAMETERS );
+
+//MIDI OUT message map:
+#define PSYNTH_MIDIMSG_MAP_PROG			0 //Program Change
+#define PSYNTH_MIDIMSG_MAP_PRESSURE		1 //Channel Pressure
+#define PSYNTH_MIDIMSG_MAP_PITCH		2 //Pitch Bend Change
+#define PSYNTH_MIDIMSG_MAP_SIZE			3
+struct psynth_midimsg_map
+{
+    uint8_t		ctl[ PSYNTH_MIDIMSG_MAP_SIZE ]; //0 - default; 0x80... - some MIDI ctl that will be redirected to PSYNTH_MIDIMSG_MAP_*
+    bool 		active;
+};
+
 #define PSYNTH_MAX_CHANNELS			2
 struct psynth_module
 {
@@ -506,7 +528,6 @@ struct psynth_module
 
     volatile float	cpu_usage; //In percents (0..100)
     int             	cpu_usage_ticks;
-    int             	cpu_usage_samples;
     uint		render_counter;
 
     //Standard properties:
@@ -540,6 +561,7 @@ struct psynth_module
     int			midi_out_ch;
     int			midi_out_bank;
     int			midi_out_prog;
+    psynth_midimsg_map	midi_out_msg_map;
 #ifndef NOMIDI
     uint		midi_out_note_id[ 16 ];
     uint8_t		midi_out_note[ 16 ];
@@ -615,6 +637,18 @@ struct psynth_event_curve
     float*		data;
 };
 
+struct psynth_event_midimsg_support
+{
+    uint8_t		msg; //PSYNTH_MIDIMSG_MAP_*
+    uint8_t		ctl; //0x80...
+    //ctl:
+    // 0 - OFF (default);
+    // 0x80 - MIDI controller 0;
+    // 0x81 - MIDI controller 1;
+    // 0x82 - MIDI controller 2;
+    // ...
+};
+
 //Get a unique (to some extent) event clone:
 #define PSYNTH_EVT_ID_INC( evt_id, mod_num ) { evt_id+=((mod_num)<<5); evt_id^=((mod_num&15)<<12); evt_id^=((mod_num)<<(16+10+(mod_num&3))); }
 
@@ -637,6 +671,7 @@ struct psynth_event
 	psynth_event_sample_offset  	sample_offset;
 	psynth_event_speed	    	speed;
 	psynth_event_curve		curve; //id = curve num; offset = number of items to write/read;
+	psynth_event_midimsg_support	midimsg_support;
     };
 };
 
@@ -697,13 +732,15 @@ struct psynth_net
 
     int			sampling_freq;
     int			max_buf_size; //in frames
-    int			global_volume;	//256 - normal volume (1.0)
+    int			global_volume;	//1.0 = 256
     int			all_modules_muted;
     int			buf_size;
     //uint32_t		frame_cnt; //increases at the end of psynth_render_all()
     ticks_hr_t		out_time;
-    bool		cpu_usage_enable;
-    volatile float	cpu_usage; //In percents (0..100)
+    uint8_t		cpu_usage_enable; //bits: 1<<0 - modules+net; 1<<1 - net;
+    volatile float	cpu_usage1; //for monitor1 (cpu+modules): in percents (0..100)
+    volatile float	cpu_usage2; //for monitor2 (cpu+graph): in percents (0..100)
+    ticks_hr_t		cpu_usage_t1;
     void*		host; //sunvox_engine
     uint32_t		base_host_version;
     uint		render_counter;
@@ -737,6 +774,7 @@ struct psynth_net
 };
 
 //Global tables/variables:
+#include "psynth_freq_table.h"
 extern bool g_loading_builtin_sv_template;
 extern const char g_n2c[ 12 ];
 #define g_module_colors_num 128
@@ -791,6 +829,12 @@ void psynth_get_ctl_val_str( //Input = 0...32768 (for any ctl types); Output = v
     int val, //0...32768
     char* out_str,
     psynth_net* pnet );
+inline psynth_ctl* psynth_get_ctl( psynth_module* mod, uint ctl_num, psynth_net* pnet )
+{
+    if( !mod ) return NULL;
+    if( (unsigned)ctl_num >= (unsigned)mod->ctls_num ) return NULL;
+    return &mod->ctls[ ctl_num ];
+}
 
 //Temp buffers:
 PS_STYPE* psynth_get_temp_buf( uint mod_num, psynth_net* pnet, uint buf_num );
@@ -933,7 +977,7 @@ PS_STYPE* psynth_get_base_wavetable( void );
 #if defined(PS_STYPE_FLOATINGPOINT)
     //1/(1<<24) = 1/pow(2,24) = 0x1p-24;
     //white noise amplitude from denorm_add_white_noise() = 1.349959e-20; 0x1.FEp-67;
-    //exact range of (contiguous) integers that can be expressed as float32 is: signed 25bit int -16777216...16777215
+    //exact range (contiguous) of integers that can be expressed as float32 is: signed 25bit int -16777216...16777215
     #if CPUMARK >= 10
 	#define PS_MIN_STYPE_VALUE ( 0x1p-24 )
     #else

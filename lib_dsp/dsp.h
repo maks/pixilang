@@ -1,16 +1,14 @@
 #pragma once
 
-//Linear table for frequency calculation:
-extern uint32_t g_linear_freq_tab[ 768 ];
-
-//Half of sinus:
+//Half of sine:
 extern uint8_t g_hsin_tab[ 256 ];
 
 #define FFT_FLAG_INVERSE	1
 
 void fft( uint32_t flags, float* fi, float* fr, int size );
 void fft( uint32_t flags, double* fi, double* fr, int size );
-//freqs:
+float fft_test( void );
+//frequency bins:
 //[ 0 ] = 0 (DC)
 //[ 1 ] = sample rate / 2 / size
 //[ 2 ] = sample rate / 2 / size * 2
@@ -41,6 +39,9 @@ enum dsp_win_fn
     dsp_win_fns
 };
 float dsp_window_function( float* dest, int size, dsp_win_fn type );
+
+#define DSP_LINEAR_INTERP( Y0, Y1, X, X_ONE ) \
+    ( ( (Y0) * ( (X_ONE) - (X) ) + (Y1) * (X) ) / (X_ONE) )
 
 //Catmull-Rom cubic spline interpolation:
 // y1 - current point;

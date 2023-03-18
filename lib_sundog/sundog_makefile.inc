@@ -32,16 +32,16 @@
 
 ANDROID_NDK = /home/alex/soft/android-ndk-r22b
 MACOS_TOOLCHAIN_BIN = /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
-MACOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX12.1.sdk
-VST3_SDK = /home/alex/soft/VST_SDK/VST3_SDK
+MACOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX13.1.sdk
+VST3_SDK = /home/alex/soft/VST_SDK/vst3sdk
 VST3_SDK_BASE = $(VST3_SDK)/base
 VST3_SDK_IF = $(VST3_SDK)/pluginterfaces
 VST3_SDK_HELPER = $(VST3_SDK)/public.sdk/source
 IOS_TOOLCHAIN_BIN = /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
 ifneq (,$(findstring x86,$(TARGET_ARCH)))
-    IOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator15.2.sdk
+    IOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator16.2.sdk
 else
-    IOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS15.2.sdk
+    IOS_SDK = /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS16.2.sdk
 endif
 RPI_SDK = /opt/vc
 
@@ -79,7 +79,7 @@ ifeq (,$(findstring android,$(TARGET_OS)))
 endif #not android
 endif
 ##
-## Linux: Raspberry PI
+## Linux: Raspberry PI (legacy)
 ##
 ifneq (,$(findstring raspberry_pi,$(TARGET_OS)))
     CFLAGS2 += -DOS_RASPBERRY_PI -I$(RPI_SDK)/include -I$(RPI_SDK)/include/interface/vcos/pthreads -I$(RPI_SDK)/include/interface/vmcs_host/linux
@@ -143,12 +143,12 @@ ifeq ($(TARGET_OS),macos)
     LD = $(CC)
     OBJDUMP = objdump
     CFLAGS2 += \
-	-target $(TARGET_ARCH)-apple-macos10.9 \
+	-target $(TARGET_ARCH)-apple-macos10.12 \
 	-Wno-multichar \
 	-isysroot $(MACOS_SDK) \
 	-pipe
     LDFLAGS2 += \
-	-target $(TARGET_ARCH)-apple-macos10.9 \
+	-target $(TARGET_ARCH)-apple-macos10.12 \
 	-isysroot $(MACOS_SDK)
     DEFAULT_LIBS = -lpthread -lstdc++ -framework Cocoa -framework Carbon -framework AudioUnit -framework CoreAudio
     MAKE_FOR_NEWEST_CPU = true
@@ -166,7 +166,7 @@ ifeq ($(TARGET_OS),ios)
     CFLAGS2 += \
 	-Wno-multichar \
 	-isysroot $(IOS_SDK) \
-	-miphoneos-version-min=9.0 \
+	-miphoneos-version-min=11.0 \
 	-fembed-bitcode \
 	-pipe
     DEFAULT_LIBS = -framework Foundation -framework AudioToolbox -framework AVFoundation
@@ -477,7 +477,7 @@ VIDEO = $(SUNDOG)video/
 WM = $(SUNDOG)wm/
 
 STD_INCS = $(SUNDOG)sundog.h $(LOG)log.h $(MAIN)main.h $(MEM)memory.h
-FILE_OBJS = file.o file_type.o
+FILE_OBJS = file.o file_format.o file_format_rw.o
 LOG_OBJS = log.o
 MAIN_OBJS = main.o
 MEM_OBJS = memory.o
@@ -657,8 +657,11 @@ sundog.h.gch: $(SUNDOG)sundog.h
 file.o: $(FILE)file.cpp $(FILE)file.h $(STD_INCS)
 	$(CXX) $(FINAL_CFLAGS) -c $(FILE)file.cpp
 
-file_type.o: $(FILE)file_type.cpp $(FILE)file.h $(STD_INCS)
-	$(CXX) $(FINAL_CFLAGS) -c $(FILE)file_type.cpp
+file_format.o: $(FILE)file_format.cpp $(FILE)file.h $(STD_INCS)
+	$(CXX) $(FINAL_CFLAGS) -c $(FILE)file_format.cpp
+
+file_format_rw.o: $(FILE)file_format_rw.cpp $(FILE)file.h $(STD_INCS)
+	$(CXX) $(FINAL_CFLAGS) -c $(FILE)file_format_rw.cpp
 
 log.o: $(LOG)log.cpp
 	$(CXX) $(FINAL_CFLAGS) -c $(LOG)log.cpp

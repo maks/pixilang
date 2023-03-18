@@ -21,7 +21,7 @@
 /*
     pixilang_compiler.y
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -47,15 +47,17 @@
     #define DPRINT( fmt, ARGS... ) {}
 #endif
 
-#define ERROR( fmt, ARGS... ) slog( "ERROR in %s: " fmt "\n", __FUNCTION__, ## ARGS )
-#define SHOW_ERROR( fmt, ARGS... ) \
-    { \
-	char* ts = (char*)smem_new( smem_strlen( pcomp->src_name ) + 2048 ); \
-	slog( "ERROR (line %d) in %s: " fmt "\n", pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
-	sprintf( ts, "ERROR (line %d)\nin %s:\n" fmt, pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
-	dialog( 0, ts, wm_get_string( STR_WM_CLOSE ), pcomp->vm->wm ); \
-	smem_free( ts ); \
-    }
+#define ERROR( fmt, ARGS... ) slog( "ERROR in %s() (line %d): " fmt "\n", __FUNCTION__, __LINE__, ## ARGS )
+#define PCOMP_ERROR( fmt, ARGS... ) \
+{ \
+    int ts_len = smem_strlen( pcomp->src_name ) + 2048; \
+    char* ts = (char*)smem_new( ts_len ); \
+    slog( "ERROR (line %d) in %s: " fmt "\n", pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
+    snprintf( ts, ts_len, "ERROR (line %d)\nin %s:\n" fmt, pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
+    if( pcomp->vm->compiler_errors ) smem_strcat_resize( pcomp->vm->compiler_errors, "\n" ); \
+    smem_strcat_resize( pcomp->vm->compiler_errors, ts ); \
+    smem_free( ts ); \
+}
 
 #define NUMERIC( val ) ( val >= '0' && val <= '9' )
 #define ABC( val ) ( ( val >= 'a' && val <= 'z' ) || ( val >= 'A' && val <= 'Z' ) || ( (unsigned)val >= 128 && val != -1 ) )
@@ -203,7 +205,7 @@ struct pix_compiler
     
     pix_symtab sym; /*Global symbol table*/
     pix_lsymtab* lsym; /*Local symbol tables*/
-    uint lsym_num; /*Number of current local symbol table*/
+    int lsym_num; /*Number of current local symbol table*/
     char temp_sym_name[ 256 + 1 ];
     
     char* var_flags;
@@ -256,17 +258,14 @@ static void create_empty_lsym_table( pix_compiler* pcomp )
 	pcomp->lsym = (pix_lsymtab*)smem_resize( pcomp->lsym, ( pcomp->lsym_num + 8 ) * sizeof( pix_lsymtab ) );
     pix_lsymtab* l = &pcomp->lsym[ pcomp->lsym_num ];
     smem_clear( l, sizeof( pix_lsymtab ) );
-    l->lvar_flags = (char*)smem_new( 8 );
-    l->lvar_names = (char**)smem_new( 8 * sizeof( char* ) );
-    smem_zero( l->lvar_flags );
-    smem_zero( l->lvar_names );
+    l->lvar_flags = (char*)smem_znew( 8 );
+    l->lvar_names = (char**)smem_znew( 8 * sizeof( char* ) );
     l->lvar_flags_size = 8;
 }
 
 static lnode* remove_lsym_table( pix_compiler* pcomp, lnode* statlist )
 {
-    lnode* new_tree;
-    
+    lnode* new_tree = statlist;
     int lvars_num = pcomp->lsym[ pcomp->lsym_num ].lvars_num;
     if( lvars_num )
     {
@@ -275,44 +274,44 @@ static lnode* remove_lsym_table( pix_compiler* pcomp, lnode* statlist )
 	new_tree->n[ 0 ]->val.i = -lvars_num;
 	new_tree->n[ 1 ] = statlist;
     }
-    else 
-    {
-	new_tree = statlist;
-    }
 
     pix_lsymtab* l = &pcomp->lsym[ pcomp->lsym_num ];
+    bool err = false;
     for( size_t n = 0; n < l->lvar_flags_size; n++ )
     {
 	if( l->lvar_names[ n ] )
 	{
 	    if( ( l->lvar_flags[ n ] & VAR_FLAG_INITIALIZED ) == 0 )
 	    {
-		SHOW_ERROR( "local variable %s is not initialized", l->lvar_names[ n ] );
-		remove_tree( new_tree );
-		new_tree = 0;
-		break;
+		PCOMP_ERROR( "local variable %s is not initialized", l->lvar_names[ n ] );
+		err = true;
 	    }
 	    smem_free( l->lvar_names[ n ] );
 	}
     }
+    if( err )
+    {
+	remove_tree( new_tree );
+	new_tree = NULL;
+    }
     smem_free( l->lvar_flags );
     smem_free( l->lvar_names );
-    l->lvar_flags = 0;
-    l->lvar_names = 0;
+    l->lvar_flags = NULL;
+    l->lvar_names = NULL;
     if( l->lsym )
     {
 	pix_symtab_deinit( l->lsym );
 	smem_free( l->lsym );
-	l->lsym = 0;
+	l->lsym = NULL;
 	l->lvars_num = 0;
 	l->pars_num = 0;
     }
     pcomp->lsym_num--;
-    
+
     return new_tree;
 }
 
-#line 302 "pixilang_compiler.y"
+#line 301 "pixilang_compiler.y"
 #ifdef YYSTYPE
 #undef  YYSTYPE_IS_DECLARED
 #define YYSTYPE_IS_DECLARED 1
@@ -326,7 +325,7 @@ typedef union /*Possible types for yylval and yyval:*/
     lnode* n;
 } YYSTYPE;
 #endif /* !YYSTYPE_IS_DECLARED */
-#line 330 "pixilang_compiler.cpp"
+#line 329 "pixilang_compiler.cpp"
 
 /* compatibility with bison */
 #ifdef YYPARSE_PARAM
@@ -1148,12 +1147,12 @@ typedef struct {
     YYSTYPE  *l_base;
     YYSTYPE  *l_mark;
 } YYSTACKDATA;
-#line 834 "pixilang_compiler.y"
+#line 835 "pixilang_compiler.y"
 
 //Compilation error message:
 void yyerror( pix_compiler* pcomp, char const* str )
 {
-    SHOW_ERROR( "%s", str );
+    PCOMP_ERROR( "%s", str );
 }
 
 //https://en.wikipedia.org/wiki/Escape_sequences_in_C
@@ -1547,7 +1546,7 @@ string_end:
 			    }
 			    else
 			    {
-				SHOW_ERROR( "can't create a new symbol for property" );
+				PCOMP_ERROR( "can't create a new symbol for property" );
             			return -1;
 			    }
 			}
@@ -1570,7 +1569,7 @@ string_end:
 				{
 				    //Named local variable:
 				    pix_symtab* lsym = pcomp->lsym[ pcomp->lsym_num ].lsym;
-				    if( lsym == 0 )
+				    if( !lsym )
 				    {
 					lsym = (pix_symtab*)smem_new( sizeof( pix_symtab ) );
 					pcomp->lsym[ pcomp->lsym_num ].lsym = lsym;
@@ -1608,7 +1607,7 @@ string_end:
 				    	    //Already created:
 				    	    if( pcomp->fn_pars_mode )
 				    	    {
-				    		SHOW_ERROR( "parameter %s is already defined", pcomp->temp_sym_name );
+				    		PCOMP_ERROR( "parameter %s is already defined", pcomp->temp_sym_name );
 				    		return -1;
 				    	    }
 				        }
@@ -1616,7 +1615,7 @@ string_end:
 				    }
 				    else
                         	    {
-                            		SHOW_ERROR( "can't create a new symbol for local variable" );
+                            		PCOMP_ERROR( "can't create a new symbol for local variable" );
                             		return -1;
                         	    }
 				}
@@ -1629,7 +1628,7 @@ string_end:
 			    pix_sym* sym = pix_symtab_lookup( pcomp->temp_sym_name, -1, 1, SYMTYPE_GVAR, 0, 0, &created, &pcomp->sym );
 			    if( sym == 0 )
                             {
-                                SHOW_ERROR( "can't create a new symbol for global variable" );
+                                PCOMP_ERROR( "can't create a new symbol for global variable" );
                                 return -1;
                             }
 			    if( created )
@@ -2625,7 +2624,7 @@ void fix_up( pix_compiler* pcomp )
 	pix_symtab_lookup( sname, -1, 1, stype, sval, 0, 0, &pcomp->sym ); \
 }
 
-int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base_path, pix_vm* vm )
+int pix_compile( char* src, int src_size, char* src_name, char* base_path, pix_vm* vm )
 {
     int rv = 0;
 
@@ -2634,13 +2633,13 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ticks_t start_time = stime_ticks();
 
     DPRINT( "Init...\n" );
-    pix_compiler* pcomp = (pix_compiler*)smem_new( sizeof( pix_compiler ) );
+    pix_compiler* pcomp = (pix_compiler*)smem_znew( sizeof( pix_compiler ) );
     if( !pcomp ) 
     {
+        ERROR( "memory allocation error" );
 	rv = 2;
 	goto compiler_end;
     }
-    smem_zero( pcomp );
     pcomp->vm = vm;
     pcomp->src = src;
     pcomp->src_size = src_size;
@@ -2664,8 +2663,9 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     }
     //Local symbol tables:
     pcomp->lsym = (pix_lsymtab*)smem_new( 8 * sizeof( pix_lsymtab ) );
-    if( pcomp->lsym == 0 )
+    if( !pcomp->lsym )
     {
+        ERROR( "memory allocation error" );
 	rv = 4;
 	goto compiler_end;
     }
@@ -2673,7 +2673,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     //Set base path:
     pcomp->base_path = base_path;
     DPRINT( "Base path: %s\n", base_path );
-    
+
     DPRINT( "VM init...\n" );
     vm->vars_num = 128; //standard set of variables with one-char ASCII names
     vm->vars_num += PIX_GVARS - vm->vars_num;
@@ -2683,8 +2683,9 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     smem_zero( pcomp->var_flags );
     smem_free( vm->base_path );
     vm->base_path = (char*)smem_new( smem_strlen( base_path ) + 1 );
-    if( vm->base_path == 0 )
+    if( !vm->base_path )
     {
+        ERROR( "memory allocation error" );
 	rv = 5;
 	goto compiler_end;
     }
@@ -2697,11 +2698,12 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     pix_vm_gfx_set_screen( vm->screen, vm );
     //Fonts:
     {
-	for( int i = 0; i < PIX_VM_FONTS; i++ )
+	for( int i = 0; i < vm->fonts_num; i++ )
 	    vm->fonts[ i ].font = -1;
 	COLORPTR font_data = (COLORPTR)smem_new( g_font8x8_xsize * g_font8x8_ysize * COLORLEN );
-	if( font_data == 0 )
+	if( !font_data )
 	{
+    	    ERROR( "memory allocation error" );
 	    rv = 6;
 	    goto compiler_end;
 	}
@@ -2723,11 +2725,20 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 	}
 	PIX_CID fc = pix_vm_new_container( -1, g_font8x8_xsize, g_font8x8_ysize, 32, font_data, vm );
 	pix_vm_set_container_flags( fc, pix_vm_get_container_flags( fc, vm ) | PIX_CONTAINER_FLAG_SYSTEM_MANAGED, vm );
-	vm->fonts[ 0 ].font = fc;
-	vm->fonts[ 0 ].xchars = g_font8x8_xchars;
-	vm->fonts[ 0 ].ychars = g_font8x8_ychars;
-	vm->fonts[ 0 ].first = 32;
-	vm->fonts[ 0 ].last = 32 + g_font8x8_xchars * g_font8x8_ychars - 1;
+	pix_vm_font* font = &vm->fonts[ 0 ];
+	font->font = fc;
+	font->first = 32;
+	font->last = 32 + g_font8x8_xchars * g_font8x8_ychars - 1;
+	font->xchars = g_font8x8_xchars;
+	font->ychars = g_font8x8_ychars;
+	font->char_xsize = g_font8x8_xsize / g_font8x8_xchars;
+	font->char_ysize = g_font8x8_ysize / g_font8x8_ychars;
+	font->char_xsize2 = font->char_xsize;
+	font->char_ysize2 = font->char_ysize;
+	font->grid_xoffset = 0;
+	font->grid_yoffset = 0;
+	font->grid_cell_xsize = font->char_xsize;
+	font->grid_cell_ysize = font->char_ysize;
 	pix_vm_set_container_flags( fc, pix_vm_get_container_flags( fc, vm ) | PIX_CONTAINER_FLAG_USES_KEY, vm );
 	pix_vm_set_container_key_color( fc, font_data[ 0 ], vm );
     }
@@ -2760,7 +2771,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     vm->vars[ PIX_GVAR_PPI ].i = 0;
     vm->vars[ PIX_GVAR_SCALE ].f = 1;
     vm->vars[ PIX_GVAR_FONT_SCALE ].f = 1;
-    
+
     DPRINT( "Adding base symbols...\n" );
     ADD_SYMBOL( "while", SYMTYPE_WHILE, 0 );
     ADD_SYMBOL( "for", SYMTYPE_FOR, 0 );
@@ -2811,6 +2822,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_NO_YREPEAT", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NO_YREPEAT );
     ADD_SYMBOL( "GL_NICEST", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NICEST );
     ADD_SYMBOL( "GL_NO_ALPHA", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NO_ALPHA );
+    ADD_SYMBOL( "GL_NPOT", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NPOT );
     ADD_SYMBOL( "CFLAG_INTERP", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_INTERP );
     //Container copying flags:
     ADD_SYMBOL( "COPY_NO_AUTOROTATE", SYMTYPE_NUM_I, PIX_COPY_NO_AUTOROTATE );
@@ -2827,17 +2839,17 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "CONV_FILTER_BORDER_SKIP", SYMTYPE_NUM_I, PIX_CONV_FILTER_BORDER_SKIP );
     ADD_SYMBOL( "CONV_FILTER_UNSIGNED", SYMTYPE_NUM_I, PIX_CONV_FILTER_UNSIGNED );
     //Colors:
-    ADD_SYMBOL( "ORANGE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 128, 16 ) );
-    ADD_SYMBOL( "ORANJ", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 128, 16 ) );
-    ADD_SYMBOL( "BLACK", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 0, 0 ) );
-    ADD_SYMBOL( "WHITE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 255 ) );
-    ADD_SYMBOL( "SNEG", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 255 ) );
-    ADD_SYMBOL( "YELLOW", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 0 ) );
-    ADD_SYMBOL( "SUN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 0 ) );
-    ADD_SYMBOL( "RED", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 0, 0 ) );
-    ADD_SYMBOL( "GREEN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 255, 0 ) );
-    ADD_SYMBOL( "ZELEN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 255, 0 ) );
-    ADD_SYMBOL( "BLUE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 0, 255 ) );
+    ADD_SYMBOL( "ORANGE", SYMTYPE_NUM_I, get_color( 255, 128, 16 ) );
+    ADD_SYMBOL( "ORANJ", SYMTYPE_NUM_I, get_color( 255, 128, 16 ) );
+    ADD_SYMBOL( "BLACK", SYMTYPE_NUM_I, get_color( 0, 0, 0 ) );
+    ADD_SYMBOL( "WHITE", SYMTYPE_NUM_I, get_color( 255, 255, 255 ) );
+    ADD_SYMBOL( "SNEG", SYMTYPE_NUM_I, get_color( 255, 255, 255 ) );
+    ADD_SYMBOL( "YELLOW", SYMTYPE_NUM_I, get_color( 255, 255, 0 ) );
+    ADD_SYMBOL( "SUN", SYMTYPE_NUM_I, get_color( 255, 255, 0 ) );
+    ADD_SYMBOL( "RED", SYMTYPE_NUM_I, get_color( 255, 0, 0 ) );
+    ADD_SYMBOL( "GREEN", SYMTYPE_NUM_I, get_color( 0, 255, 0 ) );
+    ADD_SYMBOL( "ZELEN", SYMTYPE_NUM_I, get_color( 0, 255, 0 ) );
+    ADD_SYMBOL( "BLUE", SYMTYPE_NUM_I, get_color( 0, 0, 255 ) );
     //Alignment:
     ADD_SYMBOL( "TOP", SYMTYPE_NUM_I, 1 );
     ADD_SYMBOL( "BOTTOM", SYMTYPE_NUM_I, 2 );
@@ -2893,8 +2905,12 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_SHADER_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_GRAD );
     ADD_SYMBOL( "GL_SHADER_TEX_ALPHA_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_ALPHA_SOLID );
     ADD_SYMBOL( "GL_SHADER_TEX_ALPHA_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_ALPHA_GRAD );
-    ADD_SYMBOL( "GL_SHADER_TEX_RGB_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGB_SOLID );
-    ADD_SYMBOL( "GL_SHADER_TEX_RGB_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGB_GRAD );
+	//GL_SHADER_TEX_RGB_* is actually RGBA (with alpha!)
+	//(we can't change it to GL_SHADER_TEX_RGBA_* because some pixi apps already use this const)
+        //that's why we use PIX_GL_DATA_FLAG_ALPHA_FF in pixilang_vm_opengl.cpp ...
+	//we probably need some new const like GL_SHADER_TEX_RGB1_* or GL_SHADER_TEX_RGB_NOALPHA_*
+    ADD_SYMBOL( "GL_SHADER_TEX_RGB_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGBA_SOLID );
+    ADD_SYMBOL( "GL_SHADER_TEX_RGB_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGBA_GRAD );
     //Values for gl_get_int() (glGetIntegerv) and gl_get_float() (glGetFloatv):
     ADD_SYMBOL( "GL_MAX_TEXTURE_SIZE", SYMTYPE_NUM_I, GL_MAX_TEXTURE_SIZE );
     ADD_SYMBOL( "GL_MAX_VERTEX_ATTRIBS", SYMTYPE_NUM_I, GL_MAX_VERTEX_ATTRIBS );
@@ -2905,24 +2921,24 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_MAX_FRAGMENT_UNIFORM_VECTORS", SYMTYPE_NUM_I, GL_MAX_FRAGMENT_UNIFORM_VECTORS );
 #endif
     //File formats:
-    ADD_SYMBOL( "FORMAT_RAW", SYMTYPE_NUM_I, SFS_FILE_TYPE_UNKNOWN );
-    ADD_SYMBOL( "FORMAT_WAVE", SYMTYPE_NUM_I, SFS_FILE_TYPE_WAVE );
-    ADD_SYMBOL( "FORMAT_AIFF", SYMTYPE_NUM_I, SFS_FILE_TYPE_AIFF );
-    ADD_SYMBOL( "FORMAT_OGG", SYMTYPE_NUM_I, SFS_FILE_TYPE_OGG );
-    ADD_SYMBOL( "FORMAT_MP3", SYMTYPE_NUM_I, SFS_FILE_TYPE_MP3 );
-    ADD_SYMBOL( "FORMAT_FLAC", SYMTYPE_NUM_I, SFS_FILE_TYPE_FLAC );
-    ADD_SYMBOL( "FORMAT_MIDI", SYMTYPE_NUM_I, SFS_FILE_TYPE_MIDI );
-    ADD_SYMBOL( "FORMAT_SUNVOX", SYMTYPE_NUM_I, SFS_FILE_TYPE_SUNVOX );
-    ADD_SYMBOL( "FORMAT_SUNVOXMODULE", SYMTYPE_NUM_I, SFS_FILE_TYPE_SUNVOXMODULE );
-    ADD_SYMBOL( "FORMAT_XM", SYMTYPE_NUM_I, SFS_FILE_TYPE_XM );
-    ADD_SYMBOL( "FORMAT_MOD", SYMTYPE_NUM_I, SFS_FILE_TYPE_MOD );
-    ADD_SYMBOL( "FORMAT_JPEG", SYMTYPE_NUM_I, SFS_FILE_TYPE_JPEG );
-    ADD_SYMBOL( "FORMAT_PNG", SYMTYPE_NUM_I, SFS_FILE_TYPE_PNG );
-    ADD_SYMBOL( "FORMAT_GIF", SYMTYPE_NUM_I, SFS_FILE_TYPE_GIF );
-    ADD_SYMBOL( "FORMAT_AVI", SYMTYPE_NUM_I, SFS_FILE_TYPE_AVI );
-    ADD_SYMBOL( "FORMAT_MP4", SYMTYPE_NUM_I, SFS_FILE_TYPE_MP4 );
-    ADD_SYMBOL( "FORMAT_ZIP", SYMTYPE_NUM_I, SFS_FILE_TYPE_ZIP );
-    ADD_SYMBOL( "FORMAT_PIXICONTAINER", SYMTYPE_NUM_I, SFS_FILE_TYPE_PIXICONTAINER );
+    ADD_SYMBOL( "FORMAT_RAW", SYMTYPE_NUM_I, SFS_FILE_FMT_UNKNOWN );
+    ADD_SYMBOL( "FORMAT_WAVE", SYMTYPE_NUM_I, SFS_FILE_FMT_WAVE );
+    ADD_SYMBOL( "FORMAT_AIFF", SYMTYPE_NUM_I, SFS_FILE_FMT_AIFF );
+    ADD_SYMBOL( "FORMAT_OGG", SYMTYPE_NUM_I, SFS_FILE_FMT_OGG );
+    ADD_SYMBOL( "FORMAT_MP3", SYMTYPE_NUM_I, SFS_FILE_FMT_MP3 );
+    ADD_SYMBOL( "FORMAT_FLAC", SYMTYPE_NUM_I, SFS_FILE_FMT_FLAC );
+    ADD_SYMBOL( "FORMAT_MIDI", SYMTYPE_NUM_I, SFS_FILE_FMT_MIDI );
+    ADD_SYMBOL( "FORMAT_SUNVOX", SYMTYPE_NUM_I, SFS_FILE_FMT_SUNVOX );
+    ADD_SYMBOL( "FORMAT_SUNVOXMODULE", SYMTYPE_NUM_I, SFS_FILE_FMT_SUNVOXMODULE );
+    ADD_SYMBOL( "FORMAT_XM", SYMTYPE_NUM_I, SFS_FILE_FMT_XM );
+    ADD_SYMBOL( "FORMAT_MOD", SYMTYPE_NUM_I, SFS_FILE_FMT_MOD );
+    ADD_SYMBOL( "FORMAT_JPEG", SYMTYPE_NUM_I, SFS_FILE_FMT_JPEG );
+    ADD_SYMBOL( "FORMAT_PNG", SYMTYPE_NUM_I, SFS_FILE_FMT_PNG );
+    ADD_SYMBOL( "FORMAT_GIF", SYMTYPE_NUM_I, SFS_FILE_FMT_GIF );
+    ADD_SYMBOL( "FORMAT_AVI", SYMTYPE_NUM_I, SFS_FILE_FMT_AVI );
+    ADD_SYMBOL( "FORMAT_MP4", SYMTYPE_NUM_I, SFS_FILE_FMT_MP4 );
+    ADD_SYMBOL( "FORMAT_ZIP", SYMTYPE_NUM_I, SFS_FILE_FMT_ZIP );
+    ADD_SYMBOL( "FORMAT_PIXICONTAINER", SYMTYPE_NUM_I, SFS_FILE_FMT_PIXICONTAINER );
     //Load/Save options (flags):
     ADD_SYMBOL( "GIF_GRAYSCALE", SYMTYPE_NUM_I, PIX_GIF_GRAYSCALE );
     ADD_SYMBOL( "GIF_DITHER", SYMTYPE_NUM_I, PIX_GIF_DITHER );
@@ -3170,6 +3186,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "SV_TIME_MAP_SPEED", SYMTYPE_NUM_I, PIX_SV_TIME_MAP_SPEED );
     ADD_SYMBOL( "SV_TIME_MAP_FRAMECNT", SYMTYPE_NUM_I, PIX_SV_TIME_MAP_FRAMECNT );
     ADD_SYMBOL( "SV_MODULE_FLAG_EXISTS", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_EXISTS );
+    ADD_SYMBOL( "SV_MODULE_FLAG_GENERATOR", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_GENERATOR );
     ADD_SYMBOL( "SV_MODULE_FLAG_EFFECT", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_EFFECT );
     ADD_SYMBOL( "SV_MODULE_FLAG_MUTE", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_MUTE );
     ADD_SYMBOL( "SV_MODULE_FLAG_SOLO", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_SOLO );
@@ -3184,6 +3201,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "NOTECMD_STOP", SYMTYPE_NUM_I, NOTECMD_STOP );
     ADD_SYMBOL( "NOTECMD_PLAY", SYMTYPE_NUM_I, NOTECMD_PLAY );
     ADD_SYMBOL( "NOTECMD_SET_PITCH", SYMTYPE_NUM_I, NOTECMD_SET_PITCH );
+    ADD_SYMBOL( "NOTECMD_CLEAN_MODULE", SYMTYPE_NUM_I, NOTECMD_CLEAN_MODULE );
 #endif
 
     DPRINT( "Adding global variables...\n" );
@@ -3206,7 +3224,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 
     DPRINT( "Compilation: lexical tree generation...\n" );
     pcomp->root = node( lnode_statlist, 0 );
-    if( pcomp->root == 0 )
+    if( !pcomp->root )
     {
 	rv = 7;
 	goto compiler_end;
@@ -3214,14 +3232,11 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     if( yyparse( pcomp ) )
     {
 	rv = 8;
-	goto compiler_end;
+	goto compiler_parse_error;
     }
-    //if( yyss ) { free( yyss ); yyss = 0; }
-    //if( yyvs ) { free( yyvs ); yyvs = 0; }
-    //yystacksize = 0;
     //Close last local symbol table:
     pcomp->root = remove_lsym_table( pcomp, pcomp->root );
-    if( pcomp->root == 0 )
+    if( !pcomp->root )
     {
 	rv = 9;
 	goto compiler_end;
@@ -3234,7 +3249,6 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     vm->halt_addr = 0;
     compile_tree( pcomp, pcomp->root );
     fix_up( pcomp );
-    remove_tree( pcomp->root );
     DPRINT( "%d: RET_i ( 0 << OB )\n", (int)pcomp->vm->code_ptr );
     pix_vm_put_opcode( OPCODE_RET_i, vm );
 
@@ -3254,7 +3268,11 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 	}
     }
 
+compiler_parse_error:
+
     DPRINT( "Deinit...\n" );
+    while( pcomp->lsym_num >= 0 ) remove_lsym_table( pcomp, NULL );
+    remove_tree( pcomp->root );
     pix_symtab_deinit( &pcomp->sym );
     smem_free( pcomp->var_flags );
     smem_free( pcomp->lsym );
@@ -3266,13 +3284,8 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 compiler_end:
 
     ticks_t end_time = stime_ticks();
-    
+
     DPRINT( "Pixilang compiler finished. %d ms.\n", ( ( end_time - start_time ) * 1000 ) / stime_ticks_per_second() );
-    
-    if( rv )
-    {
-	ERROR( "%d", rv );
-    }
 
     return rv;
 }
@@ -3281,13 +3294,14 @@ compiler_end:
 extern void pix_decode_source( void* src, size_t size );
 #endif
 
-int pix_compile( const char* name, pix_vm* vm )
+//Load *.pixicode file or compile *.pixi source file
+int pix_load( const char* name, pix_vm* vm )
 {
     int rv = 0;
-    
-    char* src = 0;
-    char* base_path = 0;
-    
+
+    char* src = NULL;
+    char* base_path = NULL;
+
     size_t fsize = sfs_get_file_size( name );
     if( fsize >= 8 )
     {
@@ -3302,7 +3316,11 @@ int pix_compile( const char* name, pix_vm* vm )
 	    {
 		//Binary code:
 		base_path = pix_get_base_path( name );
-		pix_vm_load_code( name, base_path, vm );
+		int load_code_err = pix_vm_load_code( name, base_path, vm );
+		if( load_code_err )
+		{
+		    rv = 5 + load_code_err * 100;
+		}
 		goto pix_compile_end;
 	    }
 	}
@@ -3310,9 +3328,10 @@ int pix_compile( const char* name, pix_vm* vm )
     if( fsize )
     {
 	src = (char*)smem_new( fsize );
-	if( src == 0 ) 
+	if( !src ) 
 	{
 	    rv = 1;
+	    ERROR( "memory allocation error" );
 	    goto pix_compile_end;
 	}
 	sfs_file f = sfs_open( name, "rb" );
@@ -3335,37 +3354,33 @@ int pix_compile( const char* name, pix_vm* vm )
 		sfs_rewind( f );
 	    }
 	}
-	sfs_read( src, 1, fsize, f );	
+	sfs_read( src, 1, fsize, f );
 	sfs_close( f );
 	base_path = pix_get_base_path( name );
 #ifdef PIX_ENCODED_SOURCE
 	pix_decode_source( src, fsize );
 #endif
-	if( pix_compile_from_memory( src, fsize, (char*)name, base_path, vm ) )
+	int comp_err = pix_compile( src, fsize, (char*)name, base_path, vm );
+	if( comp_err )
 	{
-	    rv = 3;
+	    rv = 3 + comp_err * 100;
 	    goto pix_compile_end;
 	}
     }
-    else 
+    else
     {
 	ERROR( "%s not found (or it's empty)", name );
 	rv = 4;
     }
-    
+
 pix_compile_end:
-    
+
     smem_free( src );
     smem_free( base_path );
-    
-    if( rv )
-    {
-	ERROR( "%d", rv );
-    }
-    
+
     return rv;
 }
-#line 3369 "pixilang_compiler.cpp"
+#line 3384 "pixilang_compiler.cpp"
 
 #if YYDEBUG
 #include <stdio.h>		/* needed for printf */
@@ -3575,7 +3590,7 @@ yyreduce:
     switch (yyn)
     {
 case 2:
-#line 330 "pixilang_compiler.y"
+#line 329 "pixilang_compiler.y"
 	{
             DPRINT( "input stat\n" );
             resize_node( pcomp->root, pcomp->root->nn + 1 );
@@ -3583,11 +3598,11 @@ case 2:
         }
 break;
 case 6:
-#line 342 "pixilang_compiler.y"
+#line 341 "pixilang_compiler.y"
 	{ yyval.n = yystack.l_mark[0].n; }
 break;
 case 7:
-#line 344 "pixilang_compiler.y"
+#line 343 "pixilang_compiler.y"
 	{
 	    yyval.n = node( lnode_empty, 2 );
 	    yyval.n->n[ 0 ] = yystack.l_mark[-2].n;
@@ -3595,87 +3610,87 @@ case 7:
 	}
 break;
 case 8:
-#line 351 "pixilang_compiler.y"
+#line 350 "pixilang_compiler.y"
 	{ yyval.i = 0; }
 break;
 case 9:
-#line 352 "pixilang_compiler.y"
+#line 351 "pixilang_compiler.y"
 	{ yyval.i = 1; }
 break;
 case 10:
-#line 353 "pixilang_compiler.y"
+#line 352 "pixilang_compiler.y"
 	{ yyval.i = 2; }
 break;
 case 11:
-#line 354 "pixilang_compiler.y"
+#line 353 "pixilang_compiler.y"
 	{ yyval.i = 3; }
 break;
 case 12:
-#line 355 "pixilang_compiler.y"
+#line 354 "pixilang_compiler.y"
 	{ yyval.i = 4; }
 break;
 case 13:
-#line 356 "pixilang_compiler.y"
+#line 355 "pixilang_compiler.y"
 	{ yyval.i = 5; }
 break;
 case 14:
-#line 357 "pixilang_compiler.y"
+#line 356 "pixilang_compiler.y"
 	{ yyval.i = 6; }
 break;
 case 15:
-#line 358 "pixilang_compiler.y"
+#line 357 "pixilang_compiler.y"
 	{ yyval.i = 7; }
 break;
 case 16:
-#line 359 "pixilang_compiler.y"
+#line 358 "pixilang_compiler.y"
 	{ yyval.i = 8; }
 break;
 case 17:
-#line 360 "pixilang_compiler.y"
+#line 359 "pixilang_compiler.y"
 	{ yyval.i = 9; }
 break;
 case 18:
-#line 361 "pixilang_compiler.y"
+#line 360 "pixilang_compiler.y"
 	{ yyval.i = 10; }
 break;
 case 19:
-#line 362 "pixilang_compiler.y"
+#line 361 "pixilang_compiler.y"
 	{ yyval.i = 11; }
 break;
 case 20:
-#line 363 "pixilang_compiler.y"
+#line 362 "pixilang_compiler.y"
 	{ yyval.i = 12; }
 break;
 case 21:
-#line 364 "pixilang_compiler.y"
+#line 363 "pixilang_compiler.y"
 	{ yyval.i = 13; }
 break;
 case 22:
-#line 365 "pixilang_compiler.y"
+#line 364 "pixilang_compiler.y"
 	{ yyval.i = 14; }
 break;
 case 23:
-#line 366 "pixilang_compiler.y"
+#line 365 "pixilang_compiler.y"
 	{ yyval.i = 15; }
 break;
 case 24:
-#line 367 "pixilang_compiler.y"
+#line 366 "pixilang_compiler.y"
 	{ yyval.i = 16; }
 break;
 case 25:
-#line 368 "pixilang_compiler.y"
+#line 367 "pixilang_compiler.y"
 	{ yyval.i = 17; }
 break;
 case 26:
-#line 369 "pixilang_compiler.y"
+#line 368 "pixilang_compiler.y"
 	{ yyval.i = 18; }
 break;
 case 27:
-#line 372 "pixilang_compiler.y"
+#line 371 "pixilang_compiler.y"
 	{ yyval.n = node( lnode_statlist, 0 ); }
 break;
 case 28:
-#line 374 "pixilang_compiler.y"
+#line 373 "pixilang_compiler.y"
 	{
 	    DPRINT( "statlist stat\n" );
             resize_node( yystack.l_mark[-1].n, yystack.l_mark[-1].n->nn + 1 );
@@ -3684,21 +3699,21 @@ case 28:
         }
 break;
 case 29:
-#line 382 "pixilang_compiler.y"
+#line 381 "pixilang_compiler.y"
 	{ DPRINT( "HALT\n" ); yyval.n = node( lnode_halt, 0 ); }
 break;
 case 30:
-#line 384 "pixilang_compiler.y"
+#line 383 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "VAR(%d) :\n", (int)yystack.l_mark[-1].i ); 
 	    if( pcomp->var_flags[ yystack.l_mark[-1].i ] & VAR_FLAG_LABEL )
 	    {
-		SHOW_ERROR( "label %s is already defined", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-1].i ) );
+		PCOMP_ERROR( "label %s is already defined", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-1].i ) );
                 YYERROR;
 	    }
 	    if( pcomp->var_flags[ yystack.l_mark[-1].i ] & VAR_FLAG_FUNCTION )
 	    {
-		SHOW_ERROR( "label %s is already defined as function", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-1].i ) );
+		PCOMP_ERROR( "label %s is already defined as function", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-1].i ) );
                 YYERROR;
 	    }
 	    yyval.n = node( lnode_label, 0 );
@@ -3707,11 +3722,11 @@ case 30:
 	}
 break;
 case 31:
-#line 400 "pixilang_compiler.y"
+#line 399 "pixilang_compiler.y"
 	{ DPRINT( "GO expr\n" ); yyval.n = node( lnode_go, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[0].n; }
 break;
 case 32:
-#line 402 "pixilang_compiler.y"
+#line 401 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "GVAR(%d) = expr\n", (int)yystack.l_mark[-2].i ); 
             yyval.n = node( lnode_save_to_var, 1 );
@@ -3721,7 +3736,7 @@ case 32:
         }
 break;
 case 33:
-#line 410 "pixilang_compiler.y"
+#line 409 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "LVAR(%d) = expr\n", (int)yystack.l_mark[-2].i );
 	    yyval.n = node( lnode_save_to_stackframe, 1 );
@@ -3735,7 +3750,7 @@ case 33:
         }
 break;
 case 34:
-#line 422 "pixilang_compiler.y"
+#line 421 "pixilang_compiler.y"
 	{
 	    DPRINT( "prop_expr = expr\n" );
 	    yyval.n = yystack.l_mark[-2].n;
@@ -3745,7 +3760,7 @@ case 34:
 	}
 break;
 case 35:
-#line 430 "pixilang_compiler.y"
+#line 429 "pixilang_compiler.y"
 	{
 	    DPRINT( "prop_expr stat_math_op(%d) expr\n", (int)yystack.l_mark[-1].i );
 	    /*Create math operation:*/
@@ -3760,7 +3775,7 @@ case 35:
 	}
 break;
 case 36:
-#line 443 "pixilang_compiler.y"
+#line 442 "pixilang_compiler.y"
 	{
 	    DPRINT( "mem_expr = expr\n" );
 	    yyval.n = yystack.l_mark[-2].n;
@@ -3770,7 +3785,7 @@ case 36:
         }
 break;
 case 37:
-#line 451 "pixilang_compiler.y"
+#line 450 "pixilang_compiler.y"
 	{
 	    DPRINT( "mem_expr stat_math_op(%d) expr\n", (int)yystack.l_mark[-1].i );
 	    /*Create math operation:*/
@@ -3785,7 +3800,7 @@ case 37:
 	}
 break;
 case 38:
-#line 464 "pixilang_compiler.y"
+#line 463 "pixilang_compiler.y"
 	{
 	    DPRINT( "GVAR(%d) stat_math_op(%d) expr\n", (int)yystack.l_mark[-2].i, (int)yystack.l_mark[-1].i );
 	    /*Create first operand:*/
@@ -3801,7 +3816,7 @@ case 38:
 	}
 break;
 case 39:
-#line 478 "pixilang_compiler.y"
+#line 477 "pixilang_compiler.y"
 	{
 	    DPRINT( "LVAR(%d) stat_math_op(%d) expr\n", (int)yystack.l_mark[-2].i, (int)yystack.l_mark[-1].i );
 	    /*Create first operand:*/
@@ -3817,7 +3832,7 @@ case 39:
 	}
 break;
 case 40:
-#line 492 "pixilang_compiler.y"
+#line 491 "pixilang_compiler.y"
 	{
 	    DPRINT( "FNNUM(%d) ( exprlist )\n", (int)yystack.l_mark[-3].i );
 	    yyval.n = node( lnode_call_builtin_fn_void, 1 );
@@ -3826,7 +3841,7 @@ case 40:
         }
 break;
 case 41:
-#line 499 "pixilang_compiler.y"
+#line 498 "pixilang_compiler.y"
 	{
 	    DPRINT( "fn_expr (call void function. statement)\n" );
 	    yyval.n = yystack.l_mark[0].n;
@@ -3834,7 +3849,7 @@ case 41:
 	}
 break;
 case 42:
-#line 505 "pixilang_compiler.y"
+#line 504 "pixilang_compiler.y"
 	{
 	    DPRINT( "RET\n" );
 	    yyval.n = node( lnode_ret_int, 0 );
@@ -3842,7 +3857,7 @@ case 42:
         }
 break;
 case 43:
-#line 511 "pixilang_compiler.y"
+#line 510 "pixilang_compiler.y"
 	{
 	    DPRINT( "RET ( expr )\n" );
 	    yyval.n = node( lnode_ret, 1 );
@@ -3850,7 +3865,7 @@ case 43:
         }
 break;
 case 44:
-#line 517 "pixilang_compiler.y"
+#line 516 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "IF expr statlist\n" );
 	    yyval.n = node( lnode_if, 2 );
@@ -3860,7 +3875,7 @@ case 44:
 	}
 break;
 case 45:
-#line 525 "pixilang_compiler.y"
+#line 524 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "IF expr statlist ELSE statlist\n" );
 	    yyval.n = node( lnode_if_else, 3 );
@@ -3872,7 +3887,7 @@ case 45:
 	}
 break;
 case 46:
-#line 535 "pixilang_compiler.y"
+#line 534 "pixilang_compiler.y"
 	{
 	    DPRINT( "WHILE expr {\n" );
 	    yyval.n = node( lnode_while, LNODE_WHILE_SIZE );
@@ -3890,7 +3905,7 @@ case 46:
 	}
 break;
 case 47:
-#line 551 "pixilang_compiler.y"
+#line 550 "pixilang_compiler.y"
 	{
 	    DPRINT( "statlist } (while)\n" );
 	    yyval.n = yystack.l_mark[-2].n;
@@ -3900,14 +3915,14 @@ case 47:
 	}
 break;
 case 48:
-#line 559 "pixilang_compiler.y"
+#line 558 "pixilang_compiler.y"
 	{
 	    DPRINT( "FOR begin\n" );
 	    pcomp->for_pars_mode = 1;
 	}
 break;
 case 49:
-#line 564 "pixilang_compiler.y"
+#line 563 "pixilang_compiler.y"
 	{
 	    DPRINT( "FOR ( statlist ; expr ; statlist ) {\n" );
 	    pcomp->for_pars_mode = 0;
@@ -3928,7 +3943,7 @@ case 49:
 	}
 break;
 case 50:
-#line 583 "pixilang_compiler.y"
+#line 582 "pixilang_compiler.y"
 	{
 	    DPRINT( "statlist } (for)\n" );
 	    yyval.n = yystack.l_mark[-2].n;
@@ -3938,7 +3953,7 @@ case 50:
 	}
 break;
 case 51:
-#line 591 "pixilang_compiler.y"
+#line 590 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "BREAK (level %d)\n", (int)yystack.l_mark[0].i );
 	    if( pcomp->while_stack_ptr > 0 )
@@ -3952,20 +3967,20 @@ case 51:
         		yyval.n->val.p = pcomp->while_stack[ pcomp->while_stack_ptr - yystack.l_mark[0].i ]->n[ LNODE_WHILE_JMP_TO_START ];
         	    else
         	    {
-            		SHOW_ERROR( "wrong level number %d for 'break' operator", (int)yystack.l_mark[0].i );
+            		PCOMP_ERROR( "wrong level number %d for 'break' operator", (int)yystack.l_mark[0].i );
             		YYERROR;
         	    }
         	}
     	    }
     	    else
     	    {
-                SHOW_ERROR( "operator 'break' can not be outside the while loop" );
+                PCOMP_ERROR( "operator 'break' can't be used outside of a loop" );
                 YYERROR;
             }
         }
 break;
 case 52:
-#line 616 "pixilang_compiler.y"
+#line 615 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "CONTINUE\n" );
 	    if( pcomp->while_stack_ptr > 0 )
@@ -3979,13 +3994,13 @@ case 52:
     	    }
     	    else
     	    {
-                SHOW_ERROR( "operator 'continue' can not be outside the while loop" );
+                PCOMP_ERROR( "operator 'continue' can't be used outside of a loop" );
                 YYERROR;
             }
         }
 break;
 case 53:
-#line 634 "pixilang_compiler.y"
+#line 633 "pixilang_compiler.y"
 	{
 	    DPRINT( "function begin\n" );
 	    /*Create new empty local symbol table:*/
@@ -3994,29 +4009,31 @@ case 53:
 	}
 break;
 case 54:
-#line 641 "pixilang_compiler.y"
+#line 640 "pixilang_compiler.y"
 	{
 	    pcomp->fn_pars_mode = 0;
 	    if( pcomp->var_flags[ yystack.l_mark[-3].i ] & VAR_FLAG_FUNCTION )
 	    {
-		SHOW_ERROR( "function %s is already defined", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-3].i ) );
+		PCOMP_ERROR( "function %s is already defined", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-3].i ) );
+		remove_lsym_table( pcomp, NULL );
                 YYERROR;
 	    }
 	    if( pcomp->var_flags[ yystack.l_mark[-3].i ] & VAR_FLAG_LABEL )
 	    {
-		SHOW_ERROR( "function %s is already defined as label", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-3].i ) );
+		PCOMP_ERROR( "function %s is already defined as label", pix_vm_get_variable_name( pcomp->vm, yystack.l_mark[-3].i ) );
+		remove_lsym_table( pcomp, NULL );
                 YYERROR;
 	    }
 	    pcomp->var_flags[ yystack.l_mark[-3].i ] |= VAR_FLAG_FUNCTION | VAR_FLAG_INITIALIZED;
 	}
 break;
 case 55:
-#line 656 "pixilang_compiler.y"
+#line 657 "pixilang_compiler.y"
 	{
 	    DPRINT( "function\n" );
 	    /*Remove local symbol table:*/
 	    yyval.n = remove_lsym_table( pcomp, yystack.l_mark[-1].n );
-	    if( yyval.n == 0 ) YYERROR;
+	    if( yyval.n == NULL ) YYERROR;
 	    /*Add the header:*/
 	    yyval.n->flags |= LNODE_FLAG_STATLIST_WITH_JMP_HEADER;
             /*Add ret instruction to this statlist, because it is the function now:*/
@@ -4031,7 +4048,7 @@ case 55:
 	}
 break;
 case 56:
-#line 674 "pixilang_compiler.y"
+#line 675 "pixilang_compiler.y"
 	{
 	    if( (unsigned)yystack.l_mark[0].i < (unsigned)pcomp->vm->c_num )
 	    {
@@ -4047,7 +4064,7 @@ case 56:
 		size_t fsize = sfs_get_file_size( new_name );
 		if( fsize == 0 )
 		{
-		    SHOW_ERROR( "%s not found", new_name );
+		    PCOMP_ERROR( "%s not found", new_name );
 		    smem_free( new_name );
 		    YYERROR;
 		}
@@ -4102,15 +4119,15 @@ case 56:
 	}
 break;
 case 57:
-#line 744 "pixilang_compiler.y"
+#line 745 "pixilang_compiler.y"
 	{ yyval.n = node( lnode_exprlist, 0 ); }
 break;
 case 58:
-#line 745 "pixilang_compiler.y"
+#line 746 "pixilang_compiler.y"
 	{ yyval.n = node( lnode_exprlist, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[0].n; }
 break;
 case 59:
-#line 747 "pixilang_compiler.y"
+#line 748 "pixilang_compiler.y"
 	{
 	    /*Add new node (expr) to list of parameters (exprlist):*/
 	    resize_node( yystack.l_mark[-2].n, yystack.l_mark[-2].n->nn + 1 );
@@ -4119,23 +4136,23 @@ case 59:
         }
 break;
 case 60:
-#line 755 "pixilang_compiler.y"
+#line 756 "pixilang_compiler.y"
 	{ DPRINT( "NUM_I(%d)\n", (int)yystack.l_mark[0].i ); yyval.n = node( lnode_int, 0 ); yyval.n->val.i = yystack.l_mark[0].i; }
 break;
 case 61:
-#line 756 "pixilang_compiler.y"
+#line 757 "pixilang_compiler.y"
 	{ DPRINT( "NUM_F(%d)\n", (int)yystack.l_mark[0].f ); yyval.n = node( lnode_float, 0 ); yyval.n->val.f = yystack.l_mark[0].f; }
 break;
 case 62:
-#line 757 "pixilang_compiler.y"
+#line 758 "pixilang_compiler.y"
 	{ DPRINT( "GVAR(%d)\n", (int)yystack.l_mark[0].i ); yyval.n = make_expr_node_from_var( yystack.l_mark[0].i ); }
 break;
 case 63:
-#line 758 "pixilang_compiler.y"
+#line 759 "pixilang_compiler.y"
 	{ DPRINT( "LVAR(%d)\n", (int)yystack.l_mark[0].i ); yyval.n = make_expr_node_from_local_var( yystack.l_mark[0].i ); }
 break;
 case 64:
-#line 760 "pixilang_compiler.y"
+#line 761 "pixilang_compiler.y"
 	{
 	    DPRINT( "FNNUM(%d) ( exprlist )\n", (int)yystack.l_mark[-3].i );
 	    yyval.n = node( lnode_call_builtin_fn, 1 );
@@ -4144,71 +4161,71 @@ case 64:
         }
 break;
 case 65:
-#line 768 "pixilang_compiler.y"
+#line 769 "pixilang_compiler.y"
 	{ DPRINT( "basic_expr ( exprlist )\n" ); yyval.n = node( lnode_call, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->n[ 1 ] = yystack.l_mark[-3].n; }
 break;
 case 66:
-#line 769 "pixilang_compiler.y"
+#line 770 "pixilang_compiler.y"
 	{ DPRINT( "fn_expr ( exprlist )\n" ); yyval.n = node( lnode_call, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->n[ 1 ] = yystack.l_mark[-3].n; }
 break;
 case 67:
-#line 770 "pixilang_compiler.y"
+#line 771 "pixilang_compiler.y"
 	{ DPRINT( "mem_expr ( exprlist )\n" ); yyval.n = node( lnode_call, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->n[ 1 ] = yystack.l_mark[-3].n; }
 break;
 case 68:
-#line 771 "pixilang_compiler.y"
+#line 772 "pixilang_compiler.y"
 	{ DPRINT( "prop_expr ( exprlist )\n" ); yyval.n = node( lnode_call, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->n[ 1 ] = yystack.l_mark[-3].n; }
 break;
 case 69:
-#line 774 "pixilang_compiler.y"
+#line 775 "pixilang_compiler.y"
 	{ DPRINT( "basic_expr [ smem_offset ]\n" ); yyval.n = node( lnode_load_from_mem, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-3].n; yyval.n->n[ 1 ] = yystack.l_mark[-1].n; }
 break;
 case 70:
-#line 775 "pixilang_compiler.y"
+#line 776 "pixilang_compiler.y"
 	{ DPRINT( "fn_expr [ smem_offset ]\n" ); yyval.n = node( lnode_load_from_mem, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-3].n; yyval.n->n[ 1 ] = yystack.l_mark[-1].n; }
 break;
 case 71:
-#line 776 "pixilang_compiler.y"
+#line 777 "pixilang_compiler.y"
 	{ DPRINT( "mem_expr [ smem_offset ]\n" ); yyval.n = node( lnode_load_from_mem, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-3].n; yyval.n->n[ 1 ] = yystack.l_mark[-1].n; }
 break;
 case 72:
-#line 777 "pixilang_compiler.y"
+#line 778 "pixilang_compiler.y"
 	{ DPRINT( "prop_expr [ smem_offset ]\n" ); yyval.n = node( lnode_load_from_mem, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-3].n; yyval.n->n[ 1 ] = yystack.l_mark[-1].n; }
 break;
 case 73:
-#line 780 "pixilang_compiler.y"
+#line 781 "pixilang_compiler.y"
 	{ DPRINT( "basic_expr.%d\n", (int)yystack.l_mark[0].i ); yyval.n = node( lnode_load_from_prop, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->val.i = yystack.l_mark[0].i; }
 break;
 case 74:
-#line 781 "pixilang_compiler.y"
+#line 782 "pixilang_compiler.y"
 	{ DPRINT( "fn_expr.%d\n", (int)yystack.l_mark[0].i ); yyval.n = node( lnode_load_from_prop, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->val.i = yystack.l_mark[0].i; }
 break;
 case 75:
-#line 782 "pixilang_compiler.y"
+#line 783 "pixilang_compiler.y"
 	{ DPRINT( "mem_expr.%d\n", (int)yystack.l_mark[0].i ); yyval.n = node( lnode_load_from_prop, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->val.i = yystack.l_mark[0].i; }
 break;
 case 76:
-#line 783 "pixilang_compiler.y"
+#line 784 "pixilang_compiler.y"
 	{ DPRINT( "prop_expr.%d\n", (int)yystack.l_mark[0].i ); yyval.n = node( lnode_load_from_prop, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[-1].n; yyval.n->val.i = yystack.l_mark[0].i; }
 break;
 case 77:
-#line 786 "pixilang_compiler.y"
+#line 787 "pixilang_compiler.y"
 	{ DPRINT( "basic expression\n" ); yyval.n = yystack.l_mark[0].n; }
 break;
 case 78:
-#line 787 "pixilang_compiler.y"
+#line 788 "pixilang_compiler.y"
 	{ DPRINT( "fn_expr\n" ); yyval.n = yystack.l_mark[0].n; }
 break;
 case 79:
-#line 788 "pixilang_compiler.y"
+#line 789 "pixilang_compiler.y"
 	{ DPRINT( "mem_expr\n" ); yyval.n = yystack.l_mark[0].n; }
 break;
 case 80:
-#line 789 "pixilang_compiler.y"
+#line 790 "pixilang_compiler.y"
 	{ DPRINT( "prop_expr\n" ); yyval.n = yystack.l_mark[0].n; }
 break;
 case 81:
-#line 791 "pixilang_compiler.y"
+#line 792 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "statlist begin (expr)\n" );
 	    /*Create new empty local symbol table:*/
@@ -4216,7 +4233,7 @@ case 81:
 	}
 break;
 case 82:
-#line 797 "pixilang_compiler.y"
+#line 798 "pixilang_compiler.y"
 	{ 
 	    DPRINT( "statlist (expr)\n" );
 	    /*Remove local symbol table:*/
@@ -4231,98 +4248,98 @@ case 82:
         }
 break;
 case 83:
-#line 809 "pixilang_compiler.y"
+#line 810 "pixilang_compiler.y"
 	{ yyval.n = yystack.l_mark[-1].n; }
 break;
 case 84:
-#line 810 "pixilang_compiler.y"
+#line 811 "pixilang_compiler.y"
 	{ DPRINT( "SUB\n" ); yyval.n = node( lnode_sub, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 85:
-#line 811 "pixilang_compiler.y"
+#line 812 "pixilang_compiler.y"
 	{ DPRINT( "ADD\n" ); yyval.n = node( lnode_add, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 86:
-#line 812 "pixilang_compiler.y"
+#line 813 "pixilang_compiler.y"
 	{ DPRINT( "MUL\n" ); yyval.n = node( lnode_mul, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 87:
-#line 813 "pixilang_compiler.y"
+#line 814 "pixilang_compiler.y"
 	{ DPRINT( "IDIV\n" ); yyval.n = node( lnode_idiv, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 88:
-#line 814 "pixilang_compiler.y"
+#line 815 "pixilang_compiler.y"
 	{ DPRINT( "DIV\n" ); yyval.n = node( lnode_div, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 89:
-#line 815 "pixilang_compiler.y"
+#line 816 "pixilang_compiler.y"
 	{ DPRINT( "MOD\n" ); yyval.n = node( lnode_mod, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 90:
-#line 816 "pixilang_compiler.y"
+#line 817 "pixilang_compiler.y"
 	{ DPRINT( "AND\n" ); yyval.n = node( lnode_and, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 91:
-#line 817 "pixilang_compiler.y"
+#line 818 "pixilang_compiler.y"
 	{ DPRINT( "OR\n" ); yyval.n = node( lnode_or, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 92:
-#line 818 "pixilang_compiler.y"
+#line 819 "pixilang_compiler.y"
 	{ DPRINT( "XOR\n" ); yyval.n = node( lnode_xor, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 93:
-#line 819 "pixilang_compiler.y"
+#line 820 "pixilang_compiler.y"
 	{ DPRINT( "ANDAND\n" ); yyval.n = node( lnode_andand, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 94:
-#line 820 "pixilang_compiler.y"
+#line 821 "pixilang_compiler.y"
 	{ DPRINT( "OROR\n" ); yyval.n = node( lnode_oror, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 95:
-#line 821 "pixilang_compiler.y"
+#line 822 "pixilang_compiler.y"
 	{ DPRINT( "EQ\n" ); yyval.n = node( lnode_eq, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 96:
-#line 822 "pixilang_compiler.y"
+#line 823 "pixilang_compiler.y"
 	{ DPRINT( "NEQ\n" ); yyval.n = node( lnode_neq, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 97:
-#line 823 "pixilang_compiler.y"
+#line 824 "pixilang_compiler.y"
 	{ DPRINT( "LESS\n" ); yyval.n = node( lnode_less, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 98:
-#line 824 "pixilang_compiler.y"
+#line 825 "pixilang_compiler.y"
 	{ DPRINT( "LEQ\n" ); yyval.n = node( lnode_leq, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 99:
-#line 825 "pixilang_compiler.y"
+#line 826 "pixilang_compiler.y"
 	{ DPRINT( "GREATER\n" ); yyval.n = node( lnode_greater, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 100:
-#line 826 "pixilang_compiler.y"
+#line 827 "pixilang_compiler.y"
 	{ DPRINT( "GEQ\n" ); yyval.n = node( lnode_geq, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 101:
-#line 827 "pixilang_compiler.y"
+#line 828 "pixilang_compiler.y"
 	{ DPRINT( "LSHIFT\n" ); yyval.n = node( lnode_lshift, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 102:
-#line 828 "pixilang_compiler.y"
+#line 829 "pixilang_compiler.y"
 	{ DPRINT( "RSHIFT\n" ); yyval.n = node( lnode_rshift, 2 ); yyval.n->n[ 0 ] = yystack.l_mark[-2].n; yyval.n->n[ 1 ] = yystack.l_mark[0].n; }
 break;
 case 103:
-#line 829 "pixilang_compiler.y"
+#line 830 "pixilang_compiler.y"
 	{ DPRINT( "NEG\n" ); yyval.n = node( lnode_neg, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[0].n; }
 break;
 case 104:
-#line 830 "pixilang_compiler.y"
+#line 831 "pixilang_compiler.y"
 	{ DPRINT( "LNOT\n" ); yyval.n = node( lnode_lnot, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[0].n; }
 break;
 case 105:
-#line 831 "pixilang_compiler.y"
+#line 832 "pixilang_compiler.y"
 	{ DPRINT( "BNOT\n" ); yyval.n = node( lnode_bnot, 1 ); yyval.n->n[ 0 ] = yystack.l_mark[0].n; }
 break;
-#line 4326 "pixilang_compiler.cpp"
+#line 4343 "pixilang_compiler.cpp"
     }
     yystack.s_mark -= yym;
     yystate = *yystack.s_mark;

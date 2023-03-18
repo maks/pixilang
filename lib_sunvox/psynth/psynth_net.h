@@ -11,7 +11,7 @@
 //   psynth_reset_events();
 //   add events via psynth_add_event();
 //   psynth_render_setup() - set rendering parameters;
-//   psynth_render() - full net rendering (buffer size = user defined; not more then max_buf_size);
+//   psynth_render_all() - full net rendering (buffer size = user defined; not more then max_buf_size);
 //3) psynth_render_end().
 
 PS_RETTYPE psynth_empty( PSYNTH_MODULE_HANDLER_PARAMETERS );
@@ -24,9 +24,7 @@ void psynth_close( psynth_net* pnet );
 void psynth_clear( psynth_net* pnet );
 int psynth_add_module(  
     int i,
-    PS_RETTYPE (*handler)(  
-	PSYNTH_MODULE_HANDLER_PARAMETERS
-    ), 
+    psynth_handler_t handler,
     const char* name,
     uint flags, 
     int x, 
@@ -36,11 +34,12 @@ int psynth_add_module(
     int tpl, //ticks per line
     psynth_net* pnet );
 void psynth_remove_module( uint mod_num, psynth_net* pnet );
+void psynth_remove_empty_modules_at_the_end( psynth_net* pnet );
 smutex* psynth_get_mutex( uint mod_num, psynth_net* pnet );
 int psynth_get_module_by_name( const char* name, psynth_net* pnet );
 inline psynth_module* psynth_get_module( uint mod_num, psynth_net* pnet )
 {
-    if( mod_num >= pnet->mods_num ) return NULL;
+    if( (unsigned)mod_num >= (unsigned)pnet->mods_num ) return NULL;
     psynth_module* mod = &pnet->mods[ mod_num ];
     if( !( mod->flags & PSYNTH_FLAG_EXISTS ) ) return NULL;
     return mod;
@@ -52,7 +51,7 @@ void psynth_add_link( bool input, uint mod_num, int link, int link_slot, psynth_
 void psynth_make_link( int out, int in, psynth_net* pnet ); //out.link = in; Example: out = 0.OUTPUT; in = SOME SYNTH
 void psynth_make_link( int out, int in, int out_slot, int in_slot, psynth_net* pnet );
 int psynth_remove_link( int out, int in, psynth_net* pnet ); //Remove connection between the modules (in any direction)
-bool psynth_check_link( int out, int in, psynth_net* pnet ); //Check connection between the modules (in any direction)
+int psynth_check_link( int out, int in, psynth_net* pnet ); //Check connection between the modules; return values: 0 - no connection; 1 - in->out; 2 - out->in;
 int psynth_open_midi_out( uint mod_num, char* dev_name, int channel, psynth_net* pnet );
 int psynth_set_midi_prog( uint mod_num, int bank, int prog, psynth_net* pnet );
 void psynth_all_midi_notes_off( uint mod_num, ticks_hr_t t, psynth_net* pnet );
@@ -60,16 +59,11 @@ void psynth_reset_events( psynth_net* pnet );
 void psynth_add_event( uint mod_num, psynth_event* evt, psynth_net* pnet ); //Can change events_heap and break your links to the events! (RISK OF EVENT DAMAGE)
 void psynth_multisend( psynth_module* mod, psynth_event* evt, psynth_net* pnet );
 void psynth_multisend_pitch( psynth_module* mod, psynth_event* evt, psynth_net* pnet, int pitch );
-void psynth_cpu_usage_clean( psynth_net* pnet );
-void psynth_cpu_usage_recalc( psynth_net* pnet );
 PS_STYPE* psynth_get_scope_buffer( int ch, int* offset, int* size, uint mod_num, ticks_hr_t t, psynth_net* pnet );
-void psynth_change_scope_buffers( ticks_hr_t t, psynth_net* pnet );
-void psynth_fill_scope_buffers( int buf_size, psynth_net* pnet );
 void psynth_set_ctl2( psynth_module* mod, psynth_event* evt );
 void psynth_render_begin( ticks_hr_t out_time, psynth_net* pnet );
-void psynth_render_end( psynth_net* pnet );
+void psynth_render_end( int frames, psynth_net* pnet );
 void psynth_render_setup( int buf_size, ticks_hr_t out_time, void* in_buf, sound_buffer_type in_buf_type, int in_buf_channels, psynth_net* pnet );
-int psynth_render( int start_mod, psynth_net* pnet );
 void psynth_render_all( psynth_net* pnet );
 
 //Event handling:

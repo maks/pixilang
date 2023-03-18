@@ -20,7 +20,7 @@ while 1
     transp( 255 )
     effector( EFF_HBLUR, 16 )
     effector( EFF_VBLUR, 16 )
-    
+
     ts = ""
     sprintf( ts, "Font %d TEST\nПроверка шрифта %d", fnum, fnum )
     print( ts )

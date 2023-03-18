@@ -1,7 +1,7 @@
 /*
     wm_image.cpp
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -13,7 +13,7 @@
     #define IMG_OPENGL !wm->fb
 #endif
 
-sundog_image* new_image( 
+sdwm_image* new_image( 
     int xsize, 
     int ysize, 
     void* src,
@@ -22,9 +22,9 @@ sundog_image* new_image(
     uint flags,
     window_manager* wm )
 {
-    sundog_image* img = 0;
+    sdwm_image* img = NULL;
     
-    img = (sundog_image*)smem_new( sizeof( sundog_image ) );
+    img = (sdwm_image*)smem_new( sizeof( sdwm_image ) );
     if( img )
     {
 	img->wm = wm;
@@ -86,10 +86,10 @@ sundog_image* new_image(
     return img;
 }
 
-void update_image( sundog_image* img, int x, int y, int xsize, int ysize )
+void update_image( sdwm_image* img, int x, int y, int xsize, int ysize )
 {
-    if( img == 0 ) return;
-    if( img->data == 0 ) return;
+    if( !img ) return;
+    if( !img->data ) return;
     window_manager* wm = img->wm;
     if( xsize == 0 ) xsize = img->xsize;
     if( ysize == 0 ) ysize = img->ysize;
@@ -105,7 +105,7 @@ void update_image( sundog_image* img, int x, int y, int xsize, int ysize )
 	}
 
         GL_BIND_TEXTURE( wm, img->gl_texture_id );
-	if( img->flags & IMAGE_INTERPOLATION )
+	if( img->flags & IMAGE_INTERP )
 	{
 	    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
 	    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
@@ -133,11 +133,14 @@ void update_image( sundog_image* img, int x, int y, int xsize, int ysize )
             type = GL_UNSIGNED_SHORT_5_6_5;
 #endif
 	}
+	//internal_format == GL_RGB && format == GL_RGBA
+	//  in OpenGL: texture alpha value will always be 1.0;
+	//  in OpenGL ES: not allowed; use GL_RGBA with special RGB shader or fill the alpha value in the source data (see code below);
 #ifdef OPENGLES
         if( internal_format == GL_RGB && format == GL_RGBA )
 	{
     	    internal_format = GL_RGBA;
-    	    uint32_t* p = (uint32_t*)img->data + x + y * img->xsize;
+    	    /*uint32_t* p = (uint32_t*)img->data + x + y * img->xsize;
     	    for( int yy = 0; yy < ysize; yy++ )
     	    {
     		for( int xx = 0; xx < xsize; xx++ )
@@ -146,7 +149,7 @@ void update_image( sundog_image* img, int x, int y, int xsize, int ysize )
     		    p++;
     		}
     		p += img->xsize - xsize;
-    	    }
+    	    }*/
         }
 #endif
 	if( img->gl_xsize == 0 )
@@ -171,28 +174,28 @@ void update_image( sundog_image* img, int x, int y, int xsize, int ysize )
     }
 }
 
-void update_image( sundog_image* img )
+void update_image( sdwm_image* img )
 {
     update_image( img, 0, 0, 0, 0 );
 }
 
-sundog_image* resize_image( sundog_image* img, int resize_flags, int new_xsize, int new_ysize )
+sdwm_image* resize_image( sdwm_image* img, int resize_flags, int new_xsize, int new_ysize )
 {
-    if( img == 0 ) return 0;
-    if( img->data == 0 ) return 0;
+    if( !img ) return 0;
+    if( !img->data ) return 0;
     window_manager* wm = img->wm;
     if( !( img->flags & IMAGE_STATIC_SOURCE ) )
     {
-	sundog_image* new_img = new_image( new_xsize, new_ysize, img->data, img->xsize, img->ysize, img->flags, wm );
+	sdwm_image* new_img = new_image( new_xsize, new_ysize, img->data, img->xsize, img->ysize, img->flags, wm );
 	remove_image( img );
 	return new_img;
     }
     return 0;
 }
 
-void remove_image( sundog_image* img )
+void remove_image( sdwm_image* img )
 {
-    if( img == 0 ) return;
+    if( !img ) return;
     window_manager* wm = img->wm;
     if( IMG_OPENGL )
     {

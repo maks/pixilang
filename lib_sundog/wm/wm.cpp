@@ -1,7 +1,7 @@
 /*
     wm.cpp - SunDog window manager
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -109,7 +109,7 @@ void empty_device_draw_image(
     int dest_x, int dest_y,
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
 }
@@ -135,6 +135,380 @@ void empty_device_change_name( const char* name, window_manager* wm )
 //
 // Main functions
 //
+
+static void get_glfont_grid( int max_char_xsize, int max_char_ysize, int zoom, int& grid_cell_xsize, int& grid_cell_ysize, int& img_xsize, int& img_ysize )
+{
+    grid_cell_xsize = ( max_char_xsize * zoom ) + 3; // + additional pixels for correct OpenGL char drawing:
+    grid_cell_ysize = ( max_char_ysize * zoom ) + 3; //   [ * [GLYPH] * 0 ]
+    img_xsize = 16 * grid_cell_xsize;
+    img_ysize = 16 * grid_cell_ysize;
+    img_xsize = round_to_power_of_two( img_xsize );
+    img_ysize = round_to_power_of_two( img_ysize );
+}
+
+static void load_font( int f, int zoom, uint8_t* tab, window_manager* wm )
+{
+    const FONT_LINE_TYPE* font_data = (const FONT_LINE_TYPE*)g_fonts[ f ];
+    const FONT_SPX_TYPE* font_spx = (const FONT_SPX_TYPE*)g_fonts_spx[ f ]; //special pixels
+    sdwm_font* font = &wm->fonts[ f ];
+    font->data = font_data;
+    font->img = NULL;
+    for( int i = 0; i < 256; i++ ) font->char_xsize[ i ] = font_data[ 1 + i ];
+    font->char_ysize = font_data[ 0 ];
+#if defined(OPENGL)
+    int max_char_xsize = sizeof( FONT_LINE_TYPE ) * 8;
+    int max_char_ysize = font_data[ 0 ];
+    if( !( wm->flags & WIN_INIT_FLAG_NO_FONT_UPSCALE ) && zoom > 1 )
+    {
+	for( int i = 0; i < 256; i++ ) font->char_xsize2[ i ] = font->char_xsize[ i ] * zoom;
+	font->char_ysize2 = font->char_ysize * zoom;
+	//
+	font->grid_xoffset = 1;
+	font->grid_yoffset = 1;
+	int grid_cell_xsize = 0;
+	int grid_cell_ysize = 0;
+	int img_xsize = 0;
+	int img_ysize = 0;
+	get_glfont_grid( max_char_xsize, max_char_ysize, zoom, grid_cell_xsize, grid_cell_ysize, img_xsize, img_ysize );
+	font->grid_cell_xsize = grid_cell_xsize;
+	font->grid_cell_ysize = grid_cell_ysize;
+	int tmp_char_xsize = max_char_xsize + 4; // [ 0 0 [GLYPH] 0 0 ]
+	int tmp_char_ysize = max_char_ysize + 4; // ...
+	int tmp_char2_xsize = ( max_char_xsize + 2 ) * zoom; // ZOOMED [ 0 [GLYPH] 0 ]
+	int tmp_char2_ysize = ( max_char_ysize + 2 ) * zoom; // ...
+	uint8_t* img = (uint8_t*)smem_znew( img_xsize * img_ysize );
+	uint8_t* tmp_char = (uint8_t*)smem_znew( tmp_char_xsize * tmp_char_ysize );
+	uint8_t* tmp_char2 = (uint8_t*)smem_znew( tmp_char2_xsize * tmp_char2_ysize );
+	font_data += 257;
+	int char_n = 0;
+	for( int yy = 0; yy < grid_cell_ysize * 16; yy += grid_cell_ysize )
+	{
+    	    for( int xx = 0; xx < grid_cell_xsize * 16; xx += grid_cell_xsize )
+    	    {
+    		bool tmp_char_borders_changed = false;
+    		//Fill the tmp_char[] image:
+    		int tmp_char_ptr = tmp_char_xsize * 2 + 2;
+		for( int y = 0; y < max_char_ysize; y++ )
+		{
+	    	    FONT_LINE_TYPE v = *font_data;
+	    	    for( int x = 0; x < max_char_xsize; x++ )
+	    	    {
+		        tmp_char[ tmp_char_ptr ] = v & FONT_LEFT_PIXEL ? 255 : 0;
+			v <<= 1;
+			tmp_char_ptr++;
+		    }
+		    tmp_char_ptr += 4;
+		    font_data++;
+		}
+		//Fix special pixels:
+		while( *font_spx == char_n )
+		{
+		    font_spx++;
+		    uint32_t xy = *font_spx;
+		    font_spx++;
+		    int sx = xy >> 4;
+		    int sy = xy & 15;
+		    tmp_char[ ( sy + 2 ) * tmp_char_xsize + sx + 2 ] = 128; //special pixel (see upscaling algorithm below)
+		}
+		//Fix special chars:
+		if( char_n == STR_HOME[0] || char_n == STR_DASH_BEGIN[0] )
+		{
+		    //CUR | <- | NEXT
+    		    tmp_char_ptr = tmp_char_xsize * 2 + 2 + max_char_xsize;
+		    for( int y = 0; y < max_char_ysize; y++ )
+		    {
+	    		FONT_LINE_TYPE v = font_data[ y ]; //line of the next char
+		    	tmp_char[ tmp_char_ptr ] = v & FONT_LEFT_PIXEL ? 255 : 0;
+			tmp_char_ptr += tmp_char_xsize;
+		    }
+		    tmp_char_borders_changed = true;
+		}
+		if( char_n == STR_HOME[1] || char_n == STR_DASH_END[0] )
+		{
+		    //PREV | -> | CUR
+    		    tmp_char_ptr = tmp_char_xsize * 2 + 1;
+		    for( int y = 0; y < max_char_ysize; y++ )
+		    {
+			FONT_LINE_TYPE v = *( font_data - max_char_ysize*2 + y ); //line of the prev char
+		    	tmp_char[ tmp_char_ptr ] = v & ( FONT_LEFT_PIXEL >> (max_char_xsize-1) ) ? 255 : 0;
+			tmp_char_ptr += tmp_char_xsize;
+		    }
+		    tmp_char_borders_changed = true;
+		}
+		if( char_n == STR_HATCHING[0] )
+		{
+		    for( int y = 2; y < 2 + max_char_ysize; y++ )
+		    {
+			int p = y * tmp_char_xsize + 1;
+			tmp_char[ p ] = tmp_char[ p + max_char_xsize ];
+			tmp_char[ p + max_char_xsize + 1 ] = tmp_char[ p + 1 ];
+		    }
+		    for( int x = 0; x < tmp_char_xsize; x++ )
+		    {
+			int p = tmp_char_xsize + x;
+			tmp_char[ p ] = tmp_char[ p + tmp_char_xsize * max_char_ysize ];
+			tmp_char[ p + tmp_char_xsize * ( max_char_ysize + 1 ) ] = tmp_char[ p + tmp_char_xsize ];
+		    }
+		    tmp_char_borders_changed = true;
+		}
+		//tmp_char[] -> upscale -> tmp_char2[]:
+    		tmp_char_ptr = tmp_char_xsize + 1;
+		for( int y = 0; y < max_char_ysize + 2; y++ )
+		{
+    		    int tmp_char2_ptr = y * zoom * tmp_char2_xsize;
+	    	    for( int x = 0; x < max_char_xsize + 2; x++ )
+	    	    {
+	    		bool c0 = tmp_char[ tmp_char_ptr - tmp_char_xsize - 1 ] == 255;
+	    		bool c1 = tmp_char[ tmp_char_ptr - tmp_char_xsize ] == 255;
+	    		bool c2 = tmp_char[ tmp_char_ptr - tmp_char_xsize + 1 ] == 255;
+	    		bool c3 = tmp_char[ tmp_char_ptr - 1 ] == 255;
+	    		bool c4 = tmp_char[ tmp_char_ptr ] > 0;
+	    		bool c5 = tmp_char[ tmp_char_ptr + 1 ] == 255;
+	    		bool c6 = tmp_char[ tmp_char_ptr + tmp_char_xsize - 1 ] == 255;
+	    		bool c7 = tmp_char[ tmp_char_ptr + tmp_char_xsize ] == 255;
+	    		bool c8 = tmp_char[ tmp_char_ptr + tmp_char_xsize + 1 ] == 255;
+	    		int out = 0;
+	    		//out bits: 0 1
+	    		//          2 3
+	    		if( c4 )
+	    		    out = 15;
+	    		else
+	    		{
+	    		    if( !( c2 && c6 ) )
+	    		    {
+	    			if( c1 && c3 ) out |= 1 << 0;
+	                	if( c5 && c7 ) out |= 1 << 3;
+	            	    }
+	            	    if( !( c0 && c8 ) )
+	            	    {
+    	        		if( c1 && c5 ) out |= 1 << 1;
+        	        	if( c3 && c7 ) out |= 1 << 2;
+        	    	    }
+	    		}
+	    		int tp = out * zoom * zoom;
+	    		for( int ty = 0; ty < zoom; ty++ )
+	    		{
+	    		    for( int tx = 0; tx < zoom; tx++ )
+	    		    {
+	    			tmp_char2[ tmp_char2_ptr ] = tab[ tp ];
+	    			tp++;
+	    			tmp_char2_ptr++;
+			    }
+			    tmp_char2_ptr += tmp_char2_xsize - zoom;
+	    		}
+	    		tmp_char2_ptr -= tmp_char2_xsize * zoom - zoom;
+			tmp_char_ptr++;
+	    	    }
+		    tmp_char_ptr += 2;
+	    	}
+	    	/*if( char_n == 'A' )
+	    	{
+	    	    int pp = 0;
+	    	    for( int y = 0; y < tmp_char2_ysize; y++ )
+	    	    {
+	    		for( int x = 0; x < tmp_char2_xsize; x++ )
+	    		{
+	    		    printf( "%c", tmp_char2[ pp ] ? '#' : '.' );
+	    		    pp++;
+			}
+	    	        printf( "\n" );
+		    }
+	    	    printf( "\n" );
+		}*/
+		//tmp_char2[] -> img[]:
+    		int tmp_char2_ptr = tmp_char2_xsize * (zoom-1) + (zoom-1);
+    		int img_ptr = yy * img_xsize + xx;
+		for( int y = 0; y < max_char_ysize * zoom + 2; y++ )
+		{
+	    	    for( int x = 0; x < max_char_xsize * zoom + 2; x++ )
+	    	    {
+	    		img[ img_ptr ] = tmp_char2[ tmp_char2_ptr ];
+	    		img_ptr++;
+	    		tmp_char2_ptr++;
+	    	    }
+	    	    img_ptr += img_xsize - ( max_char_xsize * zoom + 2 );
+		    tmp_char2_ptr += (zoom-1) * 2;
+	    	}
+	    	//
+		if( tmp_char_borders_changed )
+		{
+		    smem_zero( tmp_char );
+		}
+	    	char_n++;
+    	    }
+    	}
+	font->img = new_image( img_xsize, img_ysize, img, img_xsize, img_ysize, IMAGE_ALPHA8 | IMAGE_INTERP, wm );
+	smem_free( img );
+	smem_free( tmp_char );
+	smem_free( tmp_char2 );
+    }
+    else
+    {
+	for( int i = 0; i < 256; i++ ) font->char_xsize2[ i ] = font->char_xsize[ i ];
+	font->char_ysize2 = font->char_ysize;
+	//
+	font->grid_xoffset = 0;
+	font->grid_yoffset = 0;
+	font->grid_cell_xsize = max_char_xsize + 1; // + additional pixel for correct OpenGL char drawing
+	font->grid_cell_ysize = max_char_ysize + 1; //...
+	int img_xsize = 16 * font->grid_cell_xsize;
+	int img_ysize = 16 * font->grid_cell_ysize;
+	img_xsize = round_to_power_of_two( img_xsize );
+	img_ysize = round_to_power_of_two( img_ysize );
+	uint8_t* img = (uint8_t*)smem_znew( img_xsize * img_ysize );
+	font_data += 257;
+	int grid_cell_xsize = font->grid_cell_xsize;
+	int grid_cell_ysize = font->grid_cell_ysize;
+	for( int yy = 0; yy < grid_cell_ysize * 16; yy += grid_cell_ysize )
+	{
+    	    for( int xx = 0; xx < grid_cell_xsize * 16; xx += grid_cell_xsize )
+    	    {
+    		int img_ptr = yy * img_xsize + xx;
+		for( int fc = 0; fc < max_char_ysize; fc++ )
+		{
+	    	    FONT_LINE_TYPE v = *font_data;
+	    	    for( int x = 0; x < max_char_xsize; x++ )
+	    	    {
+	    		if( v & FONT_LEFT_PIXEL )
+		    	    img[ img_ptr ] = 255;
+			v <<= 1;
+			img_ptr++;
+		    }
+		    img_ptr += img_xsize - max_char_xsize;
+		    font_data++;
+		}
+	    }
+	}
+	font->img = new_image( img_xsize, img_ysize, img, img_xsize, img_ysize, IMAGE_ALPHA8, wm );
+	smem_free( img );
+    }
+#endif
+}
+
+static void load_fonts( window_manager* wm )
+{
+    uint8_t* tab = NULL;
+    int zoom = 1;
+
+#if defined(OPENGL)
+    int biggest_char_xsize = 8;
+    int biggest_char_ysize = 0;
+    for( int f = 0; f < WM_FONTS; f++ )
+    {
+	const FONT_LINE_TYPE* font_data = (const FONT_LINE_TYPE*)g_fonts[ f ];
+	if( font_data[ 0 ] > biggest_char_ysize ) biggest_char_ysize = font_data[ 0 ];
+    }
+    zoom = wm->font_zoom / 256;
+    if( wm->font_zoom & 255 )
+    {
+	if( biggest_char_ysize * zoom != biggest_char_ysize * wm->font_zoom / 256 )
+	    zoom++;
+    }
+
+    int glfont_texture_limit = 2048;
+#ifdef OPENGLES
+    glfont_texture_limit = 1024;
+#endif
+    while( 1 )
+    {
+	int grid_cell_xsize = 0;
+	int grid_cell_ysize = 0;
+	int img_xsize = 0;
+	int img_ysize = 0;
+	get_glfont_grid( biggest_char_xsize, biggest_char_ysize, zoom, grid_cell_xsize, grid_cell_ysize, img_xsize, img_ysize );
+	if( zoom >= 2 && ( img_xsize > glfont_texture_limit || img_ysize > glfont_texture_limit ) )
+	    zoom--;
+	else
+	    break;
+    }
+
+    if( !( wm->flags & WIN_INIT_FLAG_NO_FONT_UPSCALE ) && zoom > 1 )
+    {
+	int zoom2 = zoom * zoom;
+	tab = (uint8_t*)smem_znew( zoom2 * 16 );
+	//Prepare the table:
+	for( int i = 1; i < 15; i++ )
+	{
+	    if( i & ( 1 << 0 ) )
+	    {
+		// # -
+	    	// - -
+		int p = i * zoom2;
+		for( int y = 0; y < zoom; y++ )
+		    for( int x = 0; x < zoom; x++ )
+		    {
+			if( x < zoom - y - 1 ) tab[ p ] = 255;
+			p++;
+		    }
+	    }
+	    if( i & ( 1 << 1 ) )
+	    {
+		// - #
+	    	// - -
+		int p = i * zoom2;
+		for( int y = 0; y < zoom; y++ )
+		    for( int x = 0; x < zoom; x++ )
+		    {
+			if( x > y ) tab[ p ] = 255;
+			p++;
+		    }
+	    }
+	    if( i & ( 1 << 2 ) )
+	    {
+		// - -
+	    	// # -
+		int p = i * zoom2;
+		for( int y = 0; y < zoom; y++ )
+		    for( int x = 0; x < zoom; x++ )
+		    {
+			if( x < y ) tab[ p ] = 255;
+			p++;
+		    }
+	    }
+	    if( i & ( 1 << 3 ) )
+	    {
+		// - -
+	    	// - #
+		int p = i * zoom2;
+		for( int y = 0; y < zoom; y++ )
+		    for( int x = 0; x < zoom; x++ )
+		    {
+			if( x >= zoom - y ) tab[ p ] = 255;
+			p++;
+		    }
+	    }
+	    /*{
+		int p = i * zoom2;
+		printf("  >>> %d:\n", i );
+		for( int y = 0; y < zoom; y++ )
+		{
+		    for( int x = 0; x < zoom; x++ )
+		    {
+			printf( "%02x ", tab[ p++ ] );
+		    }
+		    printf("\n");
+		}
+	    }*/
+	}
+	for( int i = 15 * zoom2; i < 16 * zoom2; i++ ) tab[ i ] = 255;
+    }
+#endif
+
+    for( int f = 0; f < WM_FONTS; f++ ) load_font( f, zoom, tab, wm );
+
+    smem_free( tab );
+}
+
+static void unload_font( int f, window_manager* wm )
+{
+    sdwm_font* font = &wm->fonts[ f ];
+    remove_image( font->img );
+} 
+
+static void unload_fonts( window_manager* wm )
+{
+    for( int f = 0; f < WM_FONTS; f++ ) unload_font( f, wm );
+}
 
 int win_init( const char* name, int xsize, int ysize, uint flags, sundog_engine* sd )
 {
@@ -189,6 +563,7 @@ int win_init( const char* name, int xsize, int ysize, uint flags, sundog_engine*
     if( sprofile_get_int_value( KEY_NOBORDER, -1, 0 ) != -1 ) flags |= WIN_INIT_FLAG_NOBORDER;
     if( sprofile_get_int_value( KEY_NOCURSOR, -1, 0 ) != -1 ) flags |= WIN_INIT_FLAG_NOCURSOR;
     if( sprofile_get_int_value( KEY_NOSYSBARS, -1, 0 ) != -1 ) flags |= WIN_INIT_FLAG_NOSYSBARS;
+    if( sprofile_get_int_value( KEY_NO_FONT_UPSCALE, -1, 0 ) != -1 ) flags |= WIN_INIT_FLAG_NO_FONT_UPSCALE;
 
     //Save flags & name:
     wm->flags = flags;
@@ -238,6 +613,10 @@ int win_init( const char* name, int xsize, int ysize, uint flags, sundog_engine*
     if( show == 0 ) wm->show_zoom_buttons = false;
 
     wm->double_click_time = sprofile_get_int_value( KEY_DOUBLECLICK, DEFAULT_DOUBLE_CLICK_TIME, 0 );
+    wm->kbd_autorepeat_delay = sprofile_get_int_value( KEY_KBD_AUTOREPEAT_DELAY, DEFAULT_KBD_AUTOREPEAT_DELAY, 0 );
+    wm->kbd_autorepeat_freq = sprofile_get_int_value( KEY_KBD_AUTOREPEAT_FREQ, DEFAULT_KBD_AUTOREPEAT_FREQ, 0 );
+    wm->mouse_autorepeat_delay = sprofile_get_int_value( KEY_MOUSE_AUTOREPEAT_DELAY, DEFAULT_MOUSE_AUTOREPEAT_DELAY, 0 );
+    wm->mouse_autorepeat_freq = sprofile_get_int_value( KEY_MOUSE_AUTOREPEAT_FREQ, DEFAULT_MOUSE_AUTOREPEAT_FREQ, 0 );
 
     wm->font_medium_mono = sprofile_get_int_value( KEY_FONT_MEDIUM_MONO, DEFAULT_FONT_MEDIUM_MONO, 0 );
     wm->font_big = sprofile_get_int_value( KEY_FONT_BIG, DEFAULT_FONT_BIG, 0 );
@@ -318,7 +697,7 @@ device_restart:
     if( wm->screen_zoom > 1 ) wm->screen_ppi /= wm->screen_zoom;
     if( wm->screen_scale == 0 ) wm->screen_scale = 1;
     if( wm->screen_font_scale == 0 ) wm->screen_font_scale = 1;
-    if( wm->font_zoom == 0 ) wm->font_zoom = 1;
+    if( wm->font_zoom == 0 ) wm->font_zoom = 256;
 
     if( sprofile_get_int_value( KEY_TOUCHCONTROL, -1, 0 ) != -1 ) wm->flags |= WIN_INIT_FLAG_TOUCHCONTROL;
     if( sprofile_get_int_value( KEY_PENCONTROL, -1, 0 ) != -1 ) wm->flags &= ~WIN_INIT_FLAG_TOUCHCONTROL;
@@ -336,7 +715,7 @@ device_restart:
     if( wm->screen_zoom > 1 ) slog( "WM: screen_zoom = %d\n", wm->screen_zoom );
     if( wm->screen_scale != 1 ) slog( "WM: screen_scale = %d / 256\n", (int)( wm->screen_scale * 256 ) );
     if( wm->screen_font_scale != 1 ) slog( "WM: screen_font_scale = %d / 256\n", (int)( wm->screen_font_scale * 256 ) );
-    if( wm->font_zoom != 1 ) slog( "WM: font_zoom = %d\n", wm->font_zoom );
+    if( wm->font_zoom != 256 ) slog( "WM: font_zoom = %d\n", wm->font_zoom );
     if( wm->flags & ~( ( 3 << WIN_INIT_FLAGOFF_ANGLE ) | ( 7 << WIN_INIT_FLAGOFF_ZOOM ) ) )
     {
 	slog( "WM: flags " );
@@ -354,14 +733,21 @@ device_restart:
 	if( wm->flags & WIN_INIT_FLAG_FRAMEBUFFER ) slog( "FRAMEBUFFER " );
 	if( wm->flags & WIN_INIT_FLAG_NOWINDOW ) slog( "NOWINDOW " );
 	if( wm->flags & WIN_INIT_FLAG_NOSYSBARS ) slog( "NOSYSBARS " );
+	if( wm->flags & WIN_INIT_FLAG_NO_FONT_UPSCALE ) slog( "NO_FONT_UPSCALE " );
 	slog( "\n" );
     }
+
+    load_fonts( wm );
 
     {
 	int size, min;
 
-	int smallest_font = wm->font_small;
-	int biggest_font = FONT_BIG;
+	int biggest_font = FONT_BIG; //for UI elements with variable font size
+
+	//!!!
+	//For future updates:
+	//some of the following values must be dynamically calculated in the UI element code itself
+	//(only for UI elements with variable font size)
 
 	for( int i = 0; i < 2; i++ )
 	{
@@ -381,7 +767,12 @@ device_restart:
 	    {
 		slog( "WM: PPI or Scale are too big! Scale will be reduced.\n" );
 		wm->screen_scale = (float)scrsize / ( scrollbar_size * max_xbuttons );
-		if( wm->font_zoom > 1 ) wm->font_zoom /= 2;
+		if( wm->font_zoom > 256 )
+		{
+		    wm->font_zoom /= 2;
+		    unload_fonts( wm );
+		    load_fonts( wm );
+		}
 	    }
 	    else
 	    {
@@ -408,7 +799,7 @@ device_restart:
 	if( size < min ) size = min;
 	wm->decor_border_size = size;
 
-	min = font_char_y_size( biggest_font, wm ) + wm->interelement_space2 * 2;
+	min = font_char_y_size( wm->default_font, wm ) + wm->interelement_space2 * 2;
 	size = (int)( (float)wm->screen_ppi * 0.175 * wm->screen_scale );
 	if( size < min ) size = min;
 	wm->decor_header_size = size;
@@ -419,7 +810,7 @@ device_restart:
         wm->small_button_xsize = size;
 
 	min = wm->scrollbar_size * 2;
-	size = (int)( (float)font_string_x_size( "Button ||23", 1, wm ) );
+	size = (int)( (float)font_string_x_size( "Button ||23", biggest_font, wm ) );
 	if( size < min ) size = min;
 	wm->button_xsize = size;
 
@@ -433,7 +824,7 @@ device_restart:
 	wm->large_window_xsize = (int)( (float)wm->button_xsize * 7 );
 	wm->large_window_ysize = ( wm->large_window_xsize * 11 ) / 16;
 
-	min = font_char_y_size( biggest_font, wm );
+	min = font_char_y_size( wm->default_font, wm );
 	size = (int)( (float)wm->screen_ppi * 0.14 * wm->screen_scale );
 	if( size < min ) size = min;
 	wm->list_item_ysize = size;
@@ -443,12 +834,12 @@ device_restart:
 	if( size < min ) size = min;
 	wm->text_ysize = size;
 
-	min = font_char_y_size( smallest_font, wm ) * 2 + wm->interelement_space2 * 2;
+	min = font_char_y_size( wm->font_small, wm ) * 2 + wm->interelement_space2 * 2;
 	size = (int)( (float)wm->screen_ppi * POPUP_BUTTON_YSIZE_COEFF * wm->screen_scale );
 	if( size < min ) size = min;
 	wm->popup_button_ysize = size;
 
-	min = font_char_y_size( smallest_font, wm ) * 2 + wm->interelement_space2 * 2;
+	min = font_char_y_size( wm->font_small, wm ) * 2 + wm->interelement_space2 * 2;
 	size = (int)( (float)wm->screen_ppi * CONTROLLER_YSIZE_COEFF * wm->screen_scale );
 	if( size < min ) size = min;
 	wm->controller_ysize = size;
@@ -459,52 +850,6 @@ device_restart:
         if( wm->corners_size < 2 ) wm->corners_size = 2;
         if( wm->corners_len < 4 ) wm->corners_len = 4;
     }
-
-#if defined(OPENGL)
-    //Create font textures:
-    for( int f = 0; f < WM_FONTS; f++ )
-    {
-	FONT_LINE_TYPE* font = g_fonts[ f ];
-	int cxsize = sizeof( FONT_LINE_TYPE ) * 8;
-	int char_ysize = font[ 0 ];
-	int cysize = font[ 0 ];
-	if( cysize > 8 ) cysize = 16;
-	wm->font_cxsize[ f ] = cxsize;
-	wm->font_cysize[ f ] = cysize;
-	uint8_t* tmp = (uint8_t*)smem_new( 16 * cxsize * 16 * cysize );
-	int img_ptr = 0;
-	int font_ptr = 257;
-	for( int yy = 0; yy < cysize * 16; yy += cysize )
-	{
-	    for( int xx = 0; xx < cxsize * 16; xx += cxsize )
-	    {
-		img_ptr = yy * cxsize * 16 + xx;
-		for( int fc = 0; fc < char_ysize; fc++ )
-		{
-		    FONT_LINE_TYPE v = font[ font_ptr ];
-		    for( int x = 0; x < cxsize; x++ )
-		    {
-			if( v & FONT_LEFT_PIXEL ) 
-			    tmp[ img_ptr ] = 255;
-			else
-			    tmp[ img_ptr ] = 0;
-			v <<= 1;
-			img_ptr++;
-		    }
-		    img_ptr += cxsize * 15;
-		    font_ptr++;
-		}
-	    }
-	}
-	wm->font_img[ f ] = new_image( 16 * cxsize, 16 * cysize, tmp, 16 * cxsize, 16 * cysize, IMAGE_ALPHA8, wm );
-	smem_free( tmp );
-    }
-#else
-    for( int f = 0; f < WM_FONTS; f++ )
-    {
-	wm->font_img[ f ] = NULL;
-    }
-#endif
 
     wm->color_theme = sprofile_get_int_value( KEY_COLOR_THEME, 3, 0 );
     win_colors_init( wm );
@@ -638,8 +983,18 @@ void win_reinit( window_manager* wm )
 
 int win_calc_font_zoom( int screen_ppi, int screen_zoom, float screen_scale, float screen_font_scale )
 {
-    int font_zoom = 1;
+    int font_zoom = 256;
     int fixed_ppi = sprofile_get_int_value( "fixedppi", 0, 0 );
+    bool int_scaling = false;
+#ifndef OPENGL
+    int_scaling = true;
+#endif
+    int ifs = sprofile_get_int_value( "int_font_scaling", -1, 0 );
+    if( ifs != -1 )
+    {
+	if( ifs == 1 ) int_scaling = true;
+	if( ifs == 0 ) int_scaling = false;
+    }
 #ifdef FIXEDPPI
     fixed_ppi = FIXEDPPI;
 #endif
@@ -654,21 +1009,22 @@ int win_calc_font_zoom( int screen_ppi, int screen_zoom, float screen_scale, flo
 	int base_font_ppi = 160;
 	int base_font_ppi_limit = 200;
 	int dec = base_font_ppi * 2 - base_font_ppi_limit;
-	if( screen_ppi / screen_zoom >= base_font_ppi * 2 - dec )
+	if( !int_scaling || screen_ppi / screen_zoom >= base_font_ppi * 2 - dec )
 	{
-    	    font_zoom = ( screen_ppi / screen_zoom + dec ) / base_font_ppi;
+    	    font_zoom = ( screen_ppi / screen_zoom + dec ) * 256 / base_font_ppi;
 	}
     }
     if( screen_scale <= 0 ) screen_scale = 1;
     if( screen_font_scale <= 0 ) screen_font_scale = 1;
-    font_zoom = (int)( (float)font_zoom * screen_scale * screen_font_scale );
-    if( font_zoom < 1 ) font_zoom = 1;
+    font_zoom = font_zoom * screen_scale * screen_font_scale;
+    if( int_scaling ) font_zoom &= ~255;
+    if( font_zoom < 256 ) font_zoom = 256;
     return font_zoom;
 }
 
 void win_zoom_init( window_manager* wm )
 {
-    wm->font_zoom = 1;
+    wm->font_zoom = 256;
     int fixed_ppi = sprofile_get_int_value( "fixedppi", 0, 0 );
 #ifdef FIXEDPPI
     fixed_ppi = FIXEDPPI;
@@ -700,7 +1056,7 @@ void win_zoom_apply( window_manager* wm )
 void win_angle_apply( window_manager* wm )
 {
 #ifdef SCREEN_SAFE_AREA_SUPPORTED
-    sundog_rect a = wm->screen_safe_area;
+    sdwm_rect a = wm->screen_safe_area;
     switch( wm->screen_angle & 3 )
     {
 	case 1:
@@ -824,11 +1180,7 @@ void win_deinit( window_manager* wm )
 	smem_free( wm->trash );
     }
 
-    for( int f = 0; f < WM_FONTS; f++ )
-    {
-	if( wm->font_img[ f ] )
-	    remove_image( wm->font_img[ f ] );
-    }
+    unload_fonts( wm );
 
     if( wm->screen_lock_counter > 0 )
     {
@@ -1010,7 +1362,7 @@ void set_window_controller( WINDOWPTR win, int ctrl_num, window_manager* wm, ...
     va_start( p, wm );
     uint ptr = 0;
     win->controllers_defined = true;
-    WCMD* cmds = 0;
+    WCMD* cmds = NULL;
     switch( ctrl_num )
     {
 	case 0: cmds = win->x1com; break;
@@ -1549,13 +1901,16 @@ void recalc_controllers( WINDOWPTR win, window_manager* wm )
 	else
 	{
 	    int x1 = win->x;
-	    int y1 = win->y;
-	    int x2 = win->x + win->xsize;
-	    int y2 = win->y + win->ysize;
 	    cvm_exec( win, win->x1com, &x1, win->parent->xsize, wm );
-	    cvm_exec( win, win->x2com, &x2, win->parent->xsize, wm );
+
+	    int y1 = win->y;
 	    cvm_exec( win, win->y1com, &y1, win->parent->ysize, wm );
+
+	    int x2 = x1 + win->xsize;
+	    int y2 = y1 + win->ysize;
+	    cvm_exec( win, win->x2com, &x2, win->parent->xsize, wm );
 	    cvm_exec( win, win->y2com, &y2, win->parent->ysize, wm );
+
 	    int temp;
 	    if( x1 > x2 ) { temp = x1; x1 = x2; x2 = temp; }
 	    if( y1 > y2 ) { temp = y1; y1 = y2; y2 = temp; }
@@ -1611,7 +1966,7 @@ void recalc_region( WINDOWPTR win, MWCLIPREGION* reg, int cut_x, int cut_y, int 
 		wm );
 	}
     }
-    if( win->reg == 0 )
+    if( !win->reg )
     {
 	if( x1 > x2 || y1 > y2 )
 	    win->reg = GdAllocRegion();
@@ -1684,7 +2039,7 @@ void set_focus_win( WINDOWPTR win, window_manager* wm )
     {
 	//This window removed by someone. But we can't focus on removed window.
 	//So.. Just focus on NULL window:
-	win = 0;
+	win = NULL;
     }
 
     sundog_event evt;
@@ -1755,11 +2110,20 @@ void set_focus_win( WINDOWPTR win, window_manager* wm )
     }
 }
 
-int find_focus_window( WINDOWPTR win, WINDOW** focus_win, window_manager* wm )
+static int find_focus_window( WINDOWPTR win, WINDOW** focus_win, window_manager* wm )
 {
     if( win == NULL ) return 0;
     if( win->reg && GdPtInRegion( win->reg, wm->pen_x, wm->pen_y ) )
     {
+	if( win->flags & WIN_FLAG_TRANSPARENT_FOR_FOCUS )
+	{
+	    while( 1 )
+	    {
+		win = win->parent;
+		if( win == NULL ) return 0;
+		if( ( win->flags & WIN_FLAG_TRANSPARENT_FOR_FOCUS ) == 0 ) break;
+	    }
+	}
 	*focus_win = win;
 	return 1;
     }
@@ -1926,7 +2290,7 @@ int send_touch_events( window_manager* wm )
 static void evt_autorepeat_handler( void* user_data, sundog_timer* t, window_manager* wm )
 {
     send_events( &wm->autorepeat_timer_evt, 1, wm );
-    reset_timer( t->id, stime_ticks_per_second() / 20, wm );
+    reset_timer( t->id, stime_ticks_per_second() / wm->kbd_autorepeat_freq, wm );
 }
 
 static void evt_autorepeat( sundog_event* evt, window_manager* wm )
@@ -1936,7 +2300,7 @@ static void evt_autorepeat( sundog_event* evt, window_manager* wm )
         wm->autorepeat_timer_evt = *evt;
         wm->autorepeat_timer_evt.flags &= ~EVT_FLAG_AUTOREPEAT;
         remove_timer( wm->autorepeat_timer, wm );
-        wm->autorepeat_timer = add_timer( evt_autorepeat_handler, NULL, stime_ticks_per_second() / 3, wm );
+        wm->autorepeat_timer = add_timer( evt_autorepeat_handler, NULL, stime_ms_to_ticks( wm->kbd_autorepeat_delay ), wm );
     }
     else
     {
@@ -2061,68 +2425,89 @@ static int check_event( sundog_event* evt, window_manager* wm )
     if( evt == NULL ) return 1;
     if( evt->win ) return 0;
     if( !wm->initialized ) return 1;
-    if( evt->type == EVT_MOUSEBUTTONDOWN ||
-        evt->type == EVT_MOUSEBUTTONUP ||
-        evt->type == EVT_MOUSEMOVE )
+    switch( evt->type )
     {
-        wm->pen_x = evt->x;
-        wm->pen_y = evt->y;
-        //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        if( wm->last_unfocused_window )
-        {
-    	    evt->win = wm->last_unfocused_window;
-	    if( evt->type == EVT_MOUSEBUTTONUP )
+	case EVT_BUTTONDOWN:
+	    if( wm->prev_btn_key == evt->key &&
+		wm->prev_btn_scancode == evt->scancode && 
+		wm->prev_btn_flags == ( evt->flags & EVT_FLAGS_MASK ) )
 	    {
-	        wm->last_unfocused_window = NULL;
-	    }
-	    return 0;
-        }
-        //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        if( evt->type == EVT_MOUSEBUTTONDOWN )
-        { //If mouse click:
-    	    if( evt->key & MOUSE_BUTTON_SCROLLUP ||
-	        evt->key & MOUSE_BUTTON_SCROLLDOWN )
-	    {
-	        //Mouse scroll up/down...
-	        WINDOWPTR scroll_win = NULL;
-		if( find_focus_window( wm->root_win, &scroll_win, wm ) )
-		{
-		    evt->win = scroll_win;
-		    return 0;
-		}
-		else
-		{
-		    //Window not found under the pointer:
-		    return 1;
-		}
+		evt->flags |= EVT_FLAG_REPEAT;
 	    }
 	    else
 	    {
-	        //Mouse click on some window...
-	        WINDOWPTR focus_win = NULL;
-		if( find_focus_window( wm->root_win, &focus_win, wm ) )
+		wm->prev_btn_key = evt->key;
+		wm->prev_btn_scancode = evt->scancode;
+		wm->prev_btn_flags = evt->flags & EVT_FLAGS_MASK;
+	    }
+	    break;
+	case EVT_BUTTONUP:
+	    wm->prev_btn_key = 0;
+	    break;
+	case EVT_MOUSEBUTTONDOWN:
+        case EVT_MOUSEBUTTONUP:
+        case EVT_MOUSEMOVE:
+	{
+    	    wm->pen_x = evt->x;
+    	    wm->pen_y = evt->y;
+    	    //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    	    if( wm->last_unfocused_window )
+    	    {
+    		evt->win = wm->last_unfocused_window;
+		if( evt->type == EVT_MOUSEBUTTONUP )
 		{
-		    //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-		    if( focus_win->flags & WIN_FLAG_ALWAYS_UNFOCUSED )
+	    	    wm->last_unfocused_window = NULL;
+		}
+		return 0;
+    	    }
+    	    //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    	    if( evt->type == EVT_MOUSEBUTTONDOWN )
+    	    { //If mouse click:
+    		if( evt->key & MOUSE_BUTTON_SCROLLUP ||
+	    	    evt->key & MOUSE_BUTTON_SCROLLDOWN )
+		{
+	    	    //Mouse scroll up/down...
+	    	    WINDOWPTR scroll_win = NULL;
+		    if( find_focus_window( wm->root_win, &scroll_win, wm ) )
 		    {
-		        evt->win = focus_win;
-		        wm->last_unfocused_window = focus_win;
-		        return 0;
+			evt->win = scroll_win;
+			return 0;
 		    }
-		    //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-		    set_focus_win( focus_win, wm );
+		    else
+		    {
+			//Window not found under the pointer:
+			return 1;
+		    }
 		}
 		else
 		{
-		    //Window not found under the pointer:
-		    return 1;
+	    	    //Mouse click on some window...
+	    	    WINDOWPTR focus_win = NULL;
+		    if( find_focus_window( wm->root_win, &focus_win, wm ) )
+		    {
+			//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			if( focus_win->flags & WIN_FLAG_ALWAYS_UNFOCUSED )
+			{
+		    	    evt->win = focus_win;
+		    	    wm->last_unfocused_window = focus_win;
+		    	    return 0;
+			}
+			//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+			set_focus_win( focus_win, wm );
+		    }
+		    else
+		    {
+			//Window not found under the pointer:
+			return 1;
+		    }
 		}
 	    }
+	    break;
 	}
     }
     if( wm->focus_win )
     {
-        //Set pointer to window:
+        //Set pointer to the window:
         evt->win = wm->focus_win;
 
         if( evt->type == EVT_MOUSEBUTTONDOWN )
@@ -2652,7 +3037,7 @@ struct decorator_data
     int start_win_ys;
     int start_pen_x;
     int start_pen_y;
-    int drag_mode; //DRAG_xxx
+    int drag_mode; //DRAG_*
     int prev_x;
     int prev_y;
     int prev_xsize;
@@ -2667,6 +3052,7 @@ struct decorator_data
     
     WINDOWPTR close;
     WINDOWPTR minimize;
+    WINDOWPTR help;
 };
 
 static void check_decorator_position_and_size( WINDOWPTR dec );
@@ -2679,12 +3065,12 @@ decorator_data* get_decorator_data( WINDOWPTR child )
     while( 1 )
     {
 	WINDOWPTR dec = child->parent;
-	if( dec == 0 ) break;
+	if( !dec ) break;
 	if( dec->win_handler != decorator_handler ) break;
 	rv = (decorator_data*)dec->data;
 	break;
     }
-    if( rv == 0 )
+    if( !rv )
     {
 	if( child )
 	    slog( "Can't get decorator data of window %s\n", child->name );
@@ -2867,33 +3253,29 @@ int decorator_handler( sundog_event* evt, window_manager* wm )
 	    if( win->childs_num )
 	    {
 		WINDOWPTR cw = win->childs[ 0 ];
-		if( cw == 0 ) break;
+		if( !cw ) break;
 		
 		wbd_lock( win );
 		
-		COLOR c;
-		c = cw->color;
 		wm->cur_font_color = wm->header_text_color;
 		bool noname = false;
+		int xborder = 0;
+		int yborder = 0;
 		if( data->flags & DECOR_FLAG_NOHEADER ) noname = true;
-		if( data->flags & DECOR_FLAG_NOBORDER )
+		if( !( data->flags & DECOR_FLAG_NOBORDER ) )
 		{
-		    draw_frect( 0, 0, win->xsize, win->ysize, c, wm );
-		    if( cw->name && !noname )
-		    {
-			draw_string( cw->name, wm->interelement_space, ( data->header - char_y_size( wm ) ) / 2, wm );
-		    }
+		    xborder = data->border;
+		    yborder = data->border;
 		}
-		else
+		draw_frect( xborder, 0, win->xsize - xborder * 2, win->ysize, cw->color, wm );
+		if( cw->name && !noname )
 		{
-		    draw_frect( data->border, 0, win->xsize - data->border * 2, win->ysize, c, wm );
-		    //draw_frect( data->border, 0, win->xsize - data->border * 2, data->header + data->border, get_color( 255, 0, 0 ), wm );
-		    if( cw->name && !noname )
-		    {
-			draw_string( cw->name, data->border + wm->interelement_space, ( data->header + data->border - char_y_size( wm ) ) / 2, wm );
-		    }
-		    draw_frect( 0, 0, data->border, win->ysize, wm->decorator_border, wm );
-		    draw_frect( win->xsize - data->border, 0, data->border, win->ysize, wm->decorator_border, wm );
+		    draw_string( cw->name, xborder + wm->interelement_space, ( data->header + yborder - char_y_size( wm ) ) / 2, wm );
+		}
+		if( xborder )
+		{
+		    draw_frect( 0, 0, xborder, win->ysize, wm->decorator_border, wm );
+		    draw_frect( win->xsize - xborder, 0, xborder, win->ysize, wm->decorator_border, wm );
 		}
 
 		wbd_draw( wm );
@@ -2901,7 +3283,7 @@ int decorator_handler( sundog_event* evt, window_manager* wm )
 	    }
 	    else
 	    {
-		//No childs more :( Empty decorator. Lets remove it:
+		//Empty decorator. Just remove it:
 		remove_window( win, wm );
 		recalc_regions( wm );
 		draw_window( wm->root_win, wm );
@@ -2914,9 +3296,9 @@ int decorator_handler( sundog_event* evt, window_manager* wm )
 	    retval = 1;
 	    break;
 	case EVT_SCREENRESIZE:
-	    if( wm->flags & WIN_INIT_FLAG_FULLSCREEN ) //Native app window parameters has been changed (resized or rotated):
+	    //Native app window parameters has been changed (resized or rotated):
+	    if( wm->flags & WIN_INIT_FLAG_FULLSCREEN ) 
 	    {
-		//Simple and clear logic :)
 		//Just reset window with decorator to its initial state (if it is not minimized/maximized):
 		//(in future updates we can add some flag like DONT_CENTER)
 		reset_decorator( win );
@@ -2928,10 +3310,10 @@ int decorator_handler( sundog_event* evt, window_manager* wm )
 
 static void check_decorator_position_and_size( WINDOWPTR dec )
 {
-    if( dec == 0 ) return;
-    if( dec->childs_num == 0 || dec->childs == 0 ) return;
+    if( !dec ) return;
+    if( dec->childs_num == 0 || !dec->childs ) return;
     WINDOWPTR cw = dec->childs[ 0 ];
-    if( cw == 0 ) return;
+    if( !cw ) return;
     window_manager* wm = dec->wm;
     decorator_data* data = (decorator_data*)dec->data;
 
@@ -2953,10 +3335,10 @@ static void check_decorator_position_and_size( WINDOWPTR dec )
 
 static void handle_decorator_flags( WINDOWPTR dec )
 {
-    if( dec == 0 ) return;
-    if( dec->childs_num == 0 || dec->childs == 0 ) return;
+    if( !dec ) return;
+    if( dec->childs_num == 0 || !dec->childs ) return;
     WINDOWPTR cw = dec->childs[ 0 ];
-    if( cw == 0 ) return;
+    if( !cw ) return;
     window_manager* wm = dec->wm;
     decorator_data* data = (decorator_data*)dec->data;
     
@@ -2982,7 +3364,7 @@ static void handle_decorator_flags( WINDOWPTR dec )
 	set_window_controller( dec, 3, wm, CPERC, (WCMD)100, CEND );
     }
     else
-    {    
+    {
         remove_window_controllers( dec );
     }
     if( data->flags & DECOR_FLAG_MINIMIZED )
@@ -2996,10 +3378,10 @@ static void handle_decorator_flags( WINDOWPTR dec )
 
 static void reset_decorator( WINDOWPTR dec )
 {
-    if( dec == 0 ) return;
-    if( dec->childs_num == 0 || dec->childs == 0 ) return;
+    if( !dec ) return;
+    if( dec->childs_num == 0 || !dec->childs ) return;
     WINDOWPTR cw = dec->childs[ 0 ];
-    if( cw == 0 ) return;
+    if( !cw ) return;
     window_manager* wm = dec->wm;
     decorator_data* data = (decorator_data*)dec->data;
 
@@ -3051,7 +3433,7 @@ static void reset_decorator( WINDOWPTR dec )
 void resize_window_with_decorator( WINDOWPTR win, int xsize, int ysize, window_manager* wm ) //Centered resize
 {
     decorator_data* ddata = get_decorator_data( win );
-    if( ddata == 0 ) return;
+    if( !ddata ) return;
     WINDOWPTR dec = win->parent;
     if( xsize > 0 ) ddata->initial_xsize = xsize;
     if( ysize > 0 ) ddata->initial_ysize = ysize;
@@ -3160,7 +3542,7 @@ int decor_minimize_button_handler( void* user_data, WINDOWPTR win, window_manage
     decorator_data* data = (decorator_data*)user_data;
     WINDOWPTR dwin = data->win;
     WINDOWPTR cwin = dwin->childs[ 0 ];
-    if( cwin == 0 ) return 0;
+    if( !cwin ) return 0;
     
     //Minimize / maximize:
     if( data->flags & DECOR_FLAG_MINIMIZED )
@@ -3181,6 +3563,15 @@ int decor_minimize_button_handler( void* user_data, WINDOWPTR win, window_manage
     recalc_regions( wm );
     draw_window( wm->root_win, wm );
     
+    return 0;
+}
+
+int decor_help_button_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    decorator_data* data = (decorator_data*)user_data;
+    WINDOWPTR cwin = data->win->childs[ 0 ];
+    if( !cwin ) return 0;
+    send_event( cwin, EVT_HELPREQUEST, wm );
     return 0;
 }
 
@@ -3209,7 +3600,7 @@ WINDOWPTR new_window_with_decorator(
     data->initial_ysize = ysize;
     data->flags = flags;
     reset_decorator( dec );
-    int xx = data->border + wm->interelement_space;
+    int xx = data->border; // + wm->interelement_space;
     if( flags & DECOR_FLAG_WITH_CLOSE )
     {
 	wm->opt_button_flags = BUTTON_FLAG_FLAT;
@@ -3228,6 +3619,15 @@ WINDOWPTR new_window_with_decorator(
 	set_window_controller( data->minimize, 2, wm, CPERC, (WCMD)100, CSUB, (WCMD)xx, CEND );
 	xx += wm->small_button_xsize;
     }
+    if( flags & DECOR_FLAG_WITH_HELP )
+    {
+	wm->opt_button_flags = BUTTON_FLAG_FLAT;
+	data->help = new_window( "?", 0, 0, wm->small_button_xsize, data->header + data->border, dec->color, dec, host, button_handler, wm );
+	set_handler( data->help, decor_help_button_handler, data, wm );
+	set_window_controller( data->help, 0, wm, CPERC, (WCMD)100, CSUB, (WCMD)xx + wm->small_button_xsize, CEND );
+	set_window_controller( data->help, 2, wm, CPERC, (WCMD)100, CSUB, (WCMD)xx, CEND );
+	xx += wm->small_button_xsize;
+    }
     return dec;
 }
 
@@ -3241,12 +3641,83 @@ WINDOWPTR new_window_with_decorator(
     uint flags,
     window_manager* wm )
 {
-    void* host = 0;
+    void* host = NULL;
     if( parent )
     {
 	host = parent->host;
     }
     return new_window_with_decorator( name, xsize, ysize, color, parent, host, win_handler, flags, wm );
+}
+
+//
+// Auto alignment
+//
+
+void btn_autoalign_init( btn_autoalign_data* aa, window_manager* wm, uint32_t flags )
+{
+    smem_clear( aa, sizeof( btn_autoalign_data ) );
+    aa->flags = flags;
+    aa->wm = wm;
+}
+
+void btn_autoalign_deinit( btn_autoalign_data* aa )
+{
+    smem_free( aa->ww );
+}
+
+void btn_autoalign_add( btn_autoalign_data* aa, WINDOWPTR w, uint32_t flags )
+{
+    if( !w || !aa ) return;
+
+    if( smem_objlist_add( (void***)&aa->ww, w, false, aa->i ) ) return;
+    aa->i++;
+}
+
+void btn_autoalign_next_line( btn_autoalign_data* aa, uint32_t flags )
+{
+    if( !aa ) return;
+    if( !aa->ww ) return;
+    if( aa->i == 0 ) return;
+
+    window_manager* wm = aa->wm;
+
+    int items = 0;
+    int ysize = 0;
+    for( int i = 0; i < aa->i; i++ )
+    {
+	WINDOWPTR w = (WINDOWPTR)aa->ww[ i ];
+	if( !w ) continue;
+	if( w->flags & WIN_FLAG_ALWAYS_INVISIBLE ) continue;
+	if( w->ysize > ysize ) ysize = w->ysize;
+	items++;
+    }
+
+    if( items > 0 )
+    {
+	int align = flags & 7;
+	if( align == BTN_AUTOALIGN_LINE_EVENLY )
+	{
+	    int item = 0;
+	    for( int i = 0; i < aa->i; i++ )
+    	    {
+		WINDOWPTR w = (WINDOWPTR)aa->ww[ i ];
+		if( !w ) continue;
+		if( w->flags & WIN_FLAG_ALWAYS_INVISIBLE ) continue;
+		w->y = aa->y;
+		int x1 = item * 100 / items;
+	        int x2 = (item+1) * 100 / items;
+	        set_window_controller( w, 0, wm, CPERC, (WCMD)x1, CEND );
+	        if( item == items - 1 )
+	            set_window_controller( w, 2, wm, CPERC, (WCMD)100, CEND );
+	        else
+	            set_window_controller( w, 2, wm, CPERC, (WCMD)x2, CSUB, (WCMD)wm->interelement_space2, CEND );
+		item++;
+	    }
+	}
+	aa->y += ysize + wm->interelement_space;
+    }
+
+    aa->i = 0;
 }
 
 //
@@ -3333,7 +3804,7 @@ void win_draw_image_ext(
     int dest_ysize,
     int source_x,
     int source_y,
-    sundog_image* img, 
+    sdwm_image* img, 
     window_manager* wm )
 {
     if( source_x < 0 ) { dest_xsize += source_x; x -= source_x; source_x = 0; }
@@ -3389,7 +3860,7 @@ void win_draw_image(
     WINDOWPTR win, 
     int x, 
     int y, 
-    sundog_image* img, 
+    sdwm_image* img, 
     window_manager* wm )
 {
     if( win && win->visible && win->reg && win->reg->numRects )
@@ -3686,8 +4157,10 @@ const char* wm_get_string( wm_string str_id )
 		case STR_WM_EDIT: str = "Редакт."; break;
 		case STR_WM_NEW: str = "Новый"; break;
 		case STR_WM_DELETE: str = "Удалить"; break;
+		case STR_WM_DELETE2: str = "УДАЛИТЬ"; break;
 		case STR_WM_RENAME: str = "Переименовать"; break;
-		case STR_WM_RENAME_FILE: str = "Переименовать файл"; break;
+		case STR_WM_RENAME_FILE2: str = "ПЕРЕИМЕНОВАТЬ ФАЙЛ"; break;
+		case STR_WM_RENAME_DIR2: str = "ПЕРЕИМЕНОВАТЬ ДИРЕКТОРИЮ"; break;
 		case STR_WM_CUT: str = "Вырезать"; break;
 		case STR_WM_CUT2: str = "Вырез."; break;
 		case STR_WM_COPY: str = "Скопировать"; break;
@@ -3696,8 +4169,11 @@ const char* wm_get_string( wm_string str_id )
 		case STR_WM_PASTE: str = "Вставить"; break;
 		case STR_WM_PASTE2: str = "Встав."; break;
 		case STR_WM_CREATE_DIR: str = "Создать директорию"; break;
-    		case STR_WM_DELETE_DIR: str = "Удалить текущ. директорию"; break;
-    	        case STR_WM_RECURS: str = "рекурсивно"; break;
+    		case STR_WM_DELETE_DIR2: str = "УДАЛИТЬ ДИРЕКТРИЮ"; break;
+    		case STR_WM_DELETE_CUR_DIR: str = "Удалить текущ. директорию"; break;
+    		case STR_WM_DELETE_CUR_DIR2: str = "УДАЛИТЬ ТЕКУЩУЮ ДИРЕКТРИЮ"; break;
+    	        case STR_WM_RECURS: str = "РЕКУРСИВНО"; break;
+    	        case STR_WM_ARE_YOU_SURE: str = "Вы уверены, что хотите выполнить следующую операцию?"; break;
 		case STR_WM_ERROR: str = "Ошибка"; break;
 		case STR_WM_NOT_FOUND: str = "не найден"; break;
 		case STR_WM_LOG: str = "Лог"; break;
@@ -3736,7 +4212,7 @@ const char* wm_get_string( wm_string str_id )
 #endif
 
 		case STR_WM_PREFERENCES: str = "Настройки"; break;
-		case STR_WM_PREFS_CHANGED: str = "!Настройки были изменены.\nНужно перезапустить программу для\nактивации новых настроек.\nПерезапустить сейчас?"; break;
+		case STR_WM_PREFS_CHANGED: str = "!Настройки были изменены.\nНужно перезапустить программу для активации новых настроек.\nПерезапустить сейчас?"; break;
 		case STR_WM_INTERFACE: str = "Интерфейс"; break;
     		case STR_WM_AUDIO: str = "Звук"; break;
     		case STR_WM_VIDEO: str = "Видео"; break;
@@ -3757,6 +4233,8 @@ const char* wm_get_string( wm_string str_id )
 		case STR_WM_SHOW_ZOOM_BUTTONS: str = "Кнопки масштабирования"; break;
     		case STR_WM_SHOW_KBD: str = "Текст.клавиатура"; break;
     		case STR_WM_HIDE_SYSTEM_BARS: str = "Скрыть системные панели"; break;
+    		case STR_WM_LOWRES: str = "Низкое разрешение"; break;
+    		case STR_WM_LOWRES_IOS_NOTICE: str = "Разрешение изменено. Для активации новых настроек вам необходимо перезапустить приложение (с принудительным завершением)"; break;
     		case STR_WM_WINDOW_PARS: str = "Параметры окна"; break;
 		case STR_WM_WINDOW_WIDTH: str = "Ширина по умолчанию:"; break;
     	        case STR_WM_WINDOW_HEIGHT: str = "Высота по умолчанию:"; break;
@@ -3772,6 +4250,8 @@ const char* wm_get_string( wm_string str_id )
 		case STR_WM_FONT_MEDIUM_MONO: str = "Средний моно (паттерн)"; break;
 		case STR_WM_FONT_BIG: str = "Большой (основной)"; break;
 		case STR_WM_FONT_SMALL: str = "Малый (контроллеры)"; break;
+		case STR_WM_FONT_UPSCALING: str = "Шрифты высокого разрешения"; break;
+		case STR_WM_FONT_FSCALING: str = "Дробное масштабирование шрифтов"; break;
 		case STR_WM_LANG: str = "Язык"; break;
 		case STR_WM_DRIVER: str = "Драйвер"; break;
 		case STR_WM_OUTPUT: str = "Выход"; break;
@@ -3787,6 +4267,7 @@ const char* wm_get_string( wm_string str_id )
 		case STR_WM_OPTIONS: str = "Опции"; break;
 		case STR_WM_ADD_OPTIONS: str = "Доп. опции"; break;
 		case STR_WM_ADD_OPTIONS_ASIO: str = "Доп. опции ASIO"; break;
+		case STR_WM_MEASUREMENT_MODE: str = "Без обработки звука системой"; break;
 		case STR_WM_CUR_DRIVER: str = "Текущий драйвер"; break;
 		case STR_WM_CUR_SAMPLE_RATE: str = "Текущая частота дискр."; break;
 		case STR_WM_CUR_LATENCY: str = "Текущая задержка"; break;
@@ -3846,8 +4327,10 @@ const char* wm_get_string( wm_string str_id )
 	    case STR_WM_EDIT: str = "Edit"; break;
 	    case STR_WM_NEW: str = "New"; break;
 	    case STR_WM_DELETE: str = "Delete"; break;
+	    case STR_WM_DELETE2: str = "DELETE"; break;
 	    case STR_WM_RENAME: str = "Rename"; break;
-	    case STR_WM_RENAME_FILE: str = "Rename file"; break;
+	    case STR_WM_RENAME_FILE2: str = "RENAME FILE"; break;
+	    case STR_WM_RENAME_DIR2: str = "RENAME DIRECTORY"; break;
 	    case STR_WM_CUT: str = "Cut"; break;
 	    case STR_WM_CUT2: str = "Cut"; break;
 	    case STR_WM_COPY: str = "Copy"; break;
@@ -3856,8 +4339,11 @@ const char* wm_get_string( wm_string str_id )
 	    case STR_WM_PASTE: str = "Paste"; break;
 	    case STR_WM_PASTE2: str = "Paste"; break;
 	    case STR_WM_CREATE_DIR: str = "Create directory"; break;
-    	    case STR_WM_DELETE_DIR: str = "Delete current directory"; break;
-    	    case STR_WM_RECURS: str = "recursively"; break;
+    	    case STR_WM_DELETE_DIR2: str = "DELETE DIRECTORY"; break;
+    	    case STR_WM_DELETE_CUR_DIR: str = "Delete current directory"; break;
+    	    case STR_WM_DELETE_CUR_DIR2: str = "DELETE CURRENT DIRECTORY"; break;
+    	    case STR_WM_RECURS: str = "RECURSIVELY"; break;
+    	    case STR_WM_ARE_YOU_SURE: str = "Are you sure you want to perform the following operation?"; break;
 	    case STR_WM_ERROR: str = "Error"; break;
 	    case STR_WM_NOT_FOUND: str = "not found"; break;
 	    case STR_WM_LOG: str = "Log"; break;
@@ -3896,7 +4382,7 @@ const char* wm_get_string( wm_string str_id )
 #endif
 
 	    case STR_WM_PREFERENCES: str = "Preferences"; break;
-	    case STR_WM_PREFS_CHANGED: str = "!Some preferences changed.\nYou must restart the program\nto apply these changes.\nRestart now?"; break;
+	    case STR_WM_PREFS_CHANGED: str = "!Some preferences changed.\nYou must restart the program to apply these changes.\nRestart now?"; break;
 	    case STR_WM_INTERFACE: str = "Interface"; break;
 	    case STR_WM_AUDIO: str = "Audio"; break;
 	    case STR_WM_VIDEO: str = "Video"; break;
@@ -3917,6 +4403,8 @@ const char* wm_get_string( wm_string str_id )
 	    case STR_WM_SHOW_ZOOM_BUTTONS: str = "Zoom buttons"; break;
     	    case STR_WM_SHOW_KBD: str = "Text keyboard"; break;
     	    case STR_WM_HIDE_SYSTEM_BARS: str = "Hide system bars"; break;
+    	    case STR_WM_LOWRES: str = "Low resolution"; break;
+    	    case STR_WM_LOWRES_IOS_NOTICE: str = "The screen resolution has been changed. To apply the new settings, you need to restart the application (force quit and reopen)"; break;
     	    case STR_WM_WINDOW_PARS: str = "Window parameters"; break;
     	    case STR_WM_WINDOW_WIDTH: str = "Default window width:"; break;
     	    case STR_WM_WINDOW_HEIGHT: str = "Default window height:"; break;
@@ -3932,6 +4420,8 @@ const char* wm_get_string( wm_string str_id )
 	    case STR_WM_FONT_MEDIUM_MONO: str = "Middle mono (pat.editor)"; break;
 	    case STR_WM_FONT_BIG: str = "Big (main)"; break;
 	    case STR_WM_FONT_SMALL: str = "Small (controllers)"; break;
+	    case STR_WM_FONT_UPSCALING: str = "High resolution fonts"; break;
+	    case STR_WM_FONT_FSCALING: str = "Fractional font scaling"; break;
 	    case STR_WM_LANG: str = "Language"; break;
 	    case STR_WM_DRIVER: str = "Driver"; break;
 	    case STR_WM_OUTPUT: str = "Output"; break;
@@ -3947,6 +4437,7 @@ const char* wm_get_string( wm_string str_id )
 	    case STR_WM_OPTIONS: str = "Options"; break;
 	    case STR_WM_ADD_OPTIONS: str = "Additional options"; break;
 	    case STR_WM_ADD_OPTIONS_ASIO: str = "Add. ASIO options"; break;
+	    case STR_WM_MEASUREMENT_MODE: str = "Minimize system signal processing"; break;
 	    case STR_WM_CUR_DRIVER: str = "Current driver"; break;
 	    case STR_WM_CUR_SAMPLE_RATE: str = "Current sample rate"; break;
 	    case STR_WM_CUR_LATENCY: str = "Current latency"; break;

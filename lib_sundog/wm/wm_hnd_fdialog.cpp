@@ -1,7 +1,7 @@
 /*
     wm_hnd_fdialog.cpp - file dialog window (file browser)
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -138,7 +138,7 @@ static char* fdialog_make_resulted_filename( fdialog_data* data, window_manager*
 
 static char* fdialog_fix_list_item( const char* item_name )
 {
-    if( item_name == 0 ) return 0;
+    if( !item_name ) return NULL;
     size_t len = smem_strlen( item_name );
     char* new_item = smem_strdup( item_name );
     if( new_item )
@@ -249,14 +249,14 @@ static char* fdialog_fix_name( char* in_name, const char* mask )
 static char* fdialog_edit_get_menu( fdialog_data* data )
 {
     char* ts = (char*)smem_new( 4096 );
-    sprintf( ts, "%s\n%s\n%s\n%s\n%s\n%s\n%s", 
+    snprintf( ts, 4096, "%s\n%s\n%s\n%s\n%s\n%s\n%s", 
         wm_get_string( STR_WM_DELETE ),
         wm_get_string( STR_WM_RENAME ),
         wm_get_string( STR_WM_CUT ),
         wm_get_string( STR_WM_COPY ),
         wm_get_string( STR_WM_PASTE ),
         wm_get_string( STR_WM_CREATE_DIR ),
-        wm_get_string( STR_WM_DELETE_DIR ) );
+        wm_get_string( STR_WM_DELETE_CUR_DIR ) );
     return ts;
 }
 
@@ -266,13 +266,40 @@ static int del_file_dialog_action_handler( void* user_data, WINDOWPTR win, windo
     WINDOWPTR fdialog_win = (WINDOWPTR)user_data;
     if( !is_fdialog_win_valid( fdialog_win ) ) return 1; //close
     fdialog_data* data = (fdialog_data*)fdialog_win->data;
-    if( win->action_result == 0 )
+    char* fname = (char*)get_data_container2( win, "filename" );
+    if( win->action_result == 0 && fname && fname[ 0 ] != 0 )
     {
-	char* fname = (char*)get_data_container2( win, "filename" );
-	if( fname )
+	if( !wm->fdialog_delfile_confirm && !strstr( win->name, wm_get_string( STR_WM_ARE_YOU_SURE ) ) )
 	{
-	    slog( "Deleting file: %s\n", fname );
-	    slog( "Ret.val = %d\n", sfs_remove_file( fname ) );
+    	    char* ts = (char*)smem_new( 256 );
+	    ts[ 0 ] = 0;
+	    smem_strcat_resize( ts, "!" );
+	    smem_strcat_resize( ts, wm_get_string( STR_WM_ARE_YOU_SURE ) );
+	    smem_strcat_resize( ts, "\n" );
+	    smem_strcat_resize( ts, win->name + 1 );
+
+	    WINDOWPTR d = dialog_open( NULL, ts, wm_get_string( STR_WM_YESNO ), 0, wm );
+	    if( d )
+	    {
+		add_data_container( d->childs[ 0 ], "filename", smem_strdup( fname ) );
+		set_handler( d->childs[ 0 ], del_file_dialog_action_handler, fdialog_win, wm );
+	    }
+
+	    smem_free( ts );
+	}
+	else
+	{
+	    wm->fdialog_delfile_confirm = true;
+	    if( !strstr( win->name, wm_get_string( STR_WM_DELETE_DIR2 ) ) )
+	    {
+		slog( "Deleting file: %s\n", fname );
+		slog( "Ret.val = %d\n", sfs_remove_file( fname ) );
+	    }
+	    else
+	    {
+    		slog( "Deleting directory: %s\n", fname );
+		slog( "Ret.val = %d\n", sfs_remove( fname ) );
+	    }
 	    fdialog_refresh_list( data );
 	}
     }
@@ -395,14 +422,36 @@ static int deldir_dialog_action_handler( void* user_data, WINDOWPTR win, window_
     char* dir_name = (char*)get_data_container2( win, "dirname" );
     if( win->action_result == 0 && dir_name )
     {
-        slog( "Deleting directory: %s\n", dir_name );
-	int rv = sfs_remove( dir_name );
-	slog( "Ret.val = %d\n", rv );
-	if( rv == 0 )
+	if( !wm->fdialog_deldir_confirm && !strstr( win->name, wm_get_string( STR_WM_ARE_YOU_SURE ) ) )
 	{
-	    fdialog_disk_button_handler( data, data->go_up_button, wm );
+    	    char* ts = (char*)smem_new( 256 );
+	    ts[ 0 ] = 0;
+	    smem_strcat_resize( ts, "!" );
+	    smem_strcat_resize( ts, wm_get_string( STR_WM_ARE_YOU_SURE ) );
+	    smem_strcat_resize( ts, "\n" );
+	    smem_strcat_resize( ts, win->name + 1 );
+
+	    WINDOWPTR d = dialog_open( NULL, ts, wm_get_string( STR_WM_YESNO ), 0, wm );
+	    if( d )
+	    {
+		add_data_container( d->childs[ 0 ], "dirname", smem_strdup( dir_name ) );
+		set_handler( d->childs[ 0 ], deldir_dialog_action_handler, fdialog_win, wm );
+	    }
+
+	    smem_free( ts );
 	}
-	fdialog_refresh_list( data );
+	else
+	{
+	    wm->fdialog_deldir_confirm = true;
+    	    slog( "Deleting directory: %s\n", dir_name );
+	    int rv = sfs_remove( dir_name );
+	    slog( "Ret.val = %d\n", rv );
+	    if( rv == 0 )
+	    {
+		fdialog_disk_button_handler( data, data->go_up_button, wm );
+	    }
+	    fdialog_refresh_list( data );
+	}
     }
     return 1; //close
 }
@@ -411,12 +460,17 @@ static void fdialog_edit( fdialog_data* data, int op )
 {
     window_manager* wm = data->win->wm;
     WINDOWPTR fdialog_win = data->win;
-    char* res = NULL;
-    char* name = text_get_text( data->name, wm );
+    bool dir_selected = false;
+    char* dir_name = NULL; //dir
+    char* dir_name2 = NULL; //full/path/dir
+    slist_data* ldata = list_get_data( data->files, wm );
+    if( slist_get_attr( ldata->selected_item, ldata ) == 1 ) dir_selected = true;
+    char* res = NULL; //full path (static link)
+    char* name = text_get_text( data->name, wm ); //file/dir name only (static link)
     switch( op )
     {
         case 0:
-    	    //Delete file:
+    	    //Delete file/dir:
 	case 1:
 	    //Rename file:
 	case 2:
@@ -424,16 +478,38 @@ static void fdialog_edit( fdialog_data* data, int op )
 	case 3:
 	    //Copy file:
 	    {
-	        if( name == NULL || name[ 0 ] == 0 )
-	        {
-	    	    dialog_open( NULL, wm_get_string( STR_WM_FILE_MSG_NONAME ), wm_get_string( STR_WM_OK ), 0, wm );
-	    	    return;
+		if( ( op == 0 /*|| op == 1*/ ) && dir_selected )
+		{
+		    //Dir:
+		    dir_name = fdialog_fix_list_item( slist_get_item( ldata->selected_item, ldata ) );
+	    	    if( dir_name )
+	    	    {
+			dir_name2 = (char*)smem_new( 32 ); dir_name2[ 0 ] = 0;
+			if( dir_name2 )
+			{
+			    smem_strcat_resize( dir_name2, fdialog_get_disk_name( data->prop_cur_disk ) );
+	    		    if( data->prop_path[ data->prop_cur_disk ] )
+	    		    {
+				smem_strcat_resize( dir_name2, data->prop_path[ data->prop_cur_disk ] );
+	    		    }
+	    		    smem_strcat_resize( dir_name2, dir_name );
+	    		    name = dir_name;
+	    		    res = dir_name2;
+			}
+		    }
+		}
+		else
+		{
+		    //File:
+	    	    if( name == NULL || name[ 0 ] == 0 )
+	    	    {
+	    	        dialog_open( NULL, wm_get_string( STR_WM_FILE_MSG_NONAME ), wm_get_string( STR_WM_OK ), 0, wm );
+	    		return;
+	    	    }
+		    fdialog_name_handler( data, data->name, wm ); //Add file extension
+		    res = fdialog_make_resulted_filename( data, wm );
+		    name = text_get_text( data->name, wm );
 	    	}
-
-		fdialog_name_handler( data, data->name, wm ); //Add file extension
-		res = fdialog_make_resulted_filename( data, wm );
-
-		name = text_get_text( data->name, wm );
 	    }
 	    break;
 	default:
@@ -442,13 +518,16 @@ static void fdialog_edit( fdialog_data* data, int op )
     switch( op )
     {
         case 0:
-	    //Delete file:
-	    if( res )
+	    //Delete file/dir:
+	    if( res && name )
 	    {
 	        char* ts = (char*)smem_new( smem_strlen( name ) + 256 );
 		ts[ 0 ] = 0;
 		smem_strcat_resize( ts, "!" );
-		smem_strcat_resize( ts, wm_get_string( STR_WM_DELETE ) );
+		if( dir_selected )
+		    smem_strcat_resize( ts, wm_get_string( STR_WM_DELETE_DIR2 ) );
+		else
+		    smem_strcat_resize( ts, wm_get_string( STR_WM_DELETE2 ) );
 		smem_strcat_resize( ts, " " );
 		smem_strcat_resize( ts, name );
 		smem_strcat_resize( ts, "?" );
@@ -466,7 +545,7 @@ static void fdialog_edit( fdialog_data* data, int op )
 	    break;
 	case 1:
 	    //Rename file:
-	    if( res )
+	    if( res && name )
 	    {
 		dialog_item* dlist = NULL;
 		while( 1 )
@@ -479,7 +558,9 @@ static void fdialog_edit( fdialog_data* data, int op )
             	    di->id = 'name';
 		    
 		    wm->opt_dialog_items = dlist;
-            	    WINDOWPTR d = dialog_open( wm_get_string( STR_WM_RENAME_FILE ), NULL, wm_get_string( STR_WM_OKCANCEL ), 0, wm ); //retval = decorator
+		    const char* dname = wm_get_string( STR_WM_RENAME_FILE2 );
+		    //if( dir_selected ) dname = wm_get_string( STR_WM_RENAME_DIR2 );
+            	    WINDOWPTR d = dialog_open( dname, NULL, wm_get_string( STR_WM_OKCANCEL ), 0, wm ); //retval = decorator
     		    if( !d ) break;
     		    
 		    add_data_container( d->childs[ 0 ], "filename", smem_strdup( res ) );
@@ -497,7 +578,7 @@ static void fdialog_edit( fdialog_data* data, int op )
 	    //Cut file:
 	case 3:
 	    //Copy file:
-	    if( res )
+	    if( res && name )
 	    {
 	        smem_free( wm->fdialog_copy_file_name );
 	        smem_free( wm->fdialog_copy_file_name2 );
@@ -584,7 +665,7 @@ static void fdialog_edit( fdialog_data* data, int op )
 	    }
 	    break;
 	case 6:
-	    //Delete directory:
+	    //Delete current directory:
 	    {
 	        char* p = data->prop_path[ data->prop_cur_disk ];
 		if( p && p[ 0 ] != 0 )
@@ -604,10 +685,10 @@ static void fdialog_edit( fdialog_data* data, int op )
 		        char* ts = (char*)smem_new( smem_strlen( dir_name ) + 256 );
 	    		ts[ 0 ] = 0;
 			smem_strcat_resize( ts, "!" );
-			smem_strcat_resize( ts, wm_get_string( STR_WM_DELETE_DIR ) );
-			smem_strcat_resize( ts, " " );
+			smem_strcat_resize( ts, wm_get_string( STR_WM_DELETE_CUR_DIR2 ) );
+			smem_strcat_resize( ts, " (" );
 			smem_strcat_resize( ts, dir_name );
-			smem_strcat_resize( ts, "\n" );
+			smem_strcat_resize( ts, ") " );
 			smem_strcat_resize( ts, wm_get_string( STR_WM_RECURS ) );
 			smem_strcat_resize( ts, "?" );
 
@@ -633,6 +714,8 @@ static void fdialog_edit( fdialog_data* data, int op )
 	    break;
     }
     data->final_filename[ 0 ] = 0;
+    smem_free( dir_name );
+    smem_free( dir_name2 );
 }
 
 static void fdialog_refresh_list( fdialog_data* data )
@@ -1167,7 +1250,7 @@ int fdialog_list_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 		last_action == LIST_ACTION_DOUBLECLICK )
 	    {
 		//ENTER/SPACE KEY:
-		if( slist_get_attr( ldata->selected_item, ldata ) == 1 )
+		if( attr == 1 )
 		{
 		    //It's a dir:
 		    subdir = true;
@@ -1186,10 +1269,13 @@ int fdialog_list_handler( void* user_data, WINDOWPTR win, window_manager* wm )
 		last_action == LIST_ACTION_RCLICK )
 	    {
 		//MOUSE CLICK:
-		if( slist_get_attr( ldata->selected_item, ldata ) == 1 )
+		if( attr == 1 )
 		{
-		    //It's a dir:
-		    subdir = true;
+		    if( last_action == LIST_ACTION_CLICK )
+		    {
+			//Enter subdirectory:
+			subdir = true;
+		    }
     		}
 		else
 		{
@@ -1556,6 +1642,17 @@ int fdialog_preview_resize_handler( void* user_data, WINDOWPTR win, window_manag
     return 0;
 }
 
+#ifdef SUNVOX_GUI
+int fdialog_preview_resize_opt_handler( void* user_data, WINDOWPTR win, window_manager* wm )
+{
+    fdialog_data* data = (fdialog_data*)user_data;
+    
+    send_event( data->preview_data.win, EVT_OPT, wm );
+    
+    return 0;
+}
+#endif
+
 static int get_disk_button_xsize( const char* name, WINDOWPTR win )
 {
     window_manager* wm = win->wm;
@@ -1650,6 +1747,10 @@ int fdialog_handler( sundog_event* evt, window_manager* wm )
                 resizer_set_parameters( w, 0, wm->scrollbar_size );
                 resizer_set_flags( w, resizer_get_flags( w ) | RESIZER_FLAG_TOPDOWN );
                 set_handler( w, fdialog_preview_resize_handler, data, wm );
+#ifdef SUNVOX_GUI
+                resizer_set_flags( w, resizer_get_flags( w ) | RESIZER_FLAG_OPTBTN );
+                resizer_set_opt_handler( w, fdialog_preview_resize_opt_handler, data );
+#endif
 		set_window_controller( w, 0, wm, (WCMD)wm->interelement_space, CEND );
 		set_window_controller( w, 1, wm, (WCMD)wm->interelement_space, CEND );
 		set_window_controller( w, 2, wm, (WCMD)wm->interelement_space + wm->scrollbar_size, CEND );

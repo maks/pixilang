@@ -54,10 +54,15 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Semaphore;
@@ -77,13 +82,15 @@ public class AndroidLib {
         public int port_id = 0; //SunDog MIDI port id
         public byte[] wbuf; //writing buffer
         public int wbuf_ptr = 0;
-        public MidiOutputPort outputPort;
-        public MidiInputPort inputPort;
+        public MidiOutputPort outputPort; //port for reading
+        public MidiInputPort inputPort; //port for writing
     }
     static class midiReceiver extends MidiReceiver {
-        private int id = -1;
+        private int id = -1; //SunDog MIDI port id
         public midiReceiver( int port_id ) { id = port_id; }
         public void onSend( byte[] data, int offset, int count, long timestamp ) throws IOException {
+            //timestamp increases monotonically (always increases)
+            //Log.i("MSG", id + " " + String.valueOf(count));
             AndroidLib.midi_receiver_callback( id, data, offset, count, timestamp - System.nanoTime() );
         }
     }
@@ -268,6 +275,34 @@ public class AndroidLib {
         return Locale.getDefault().toString();
     }
 
+    public String GetHostIPs(int mode) //0 - main IP (Wi-Fi?); 1 - other IPs;
+    {
+        String rv = "";
+        try {
+            for( Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces(); interfaces.hasMoreElements(); ) {
+                NetworkInterface i = interfaces.nextElement();
+                for( Enumeration<InetAddress> addresses = i.getInetAddresses(); addresses.hasMoreElements(); ) {
+                    InetAddress a = addresses.nextElement();
+                    if( !a.isLoopbackAddress() ) {
+                        String addr = a.getHostAddress();
+                        if( mode == 1 )
+                        {
+                            if( rv.length() > 0 ) rv += " ";
+                            rv += addr;
+                        }
+                        if (a instanceof Inet4Address) {
+                            if( mode == 0 ) {
+                                return addr;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        if( rv.length() == 0 ) rv = null;
+        return rv;
+    }
+
     boolean FileExists(String name) {
         File f = new File(name);
         return f.exists();
@@ -296,26 +331,30 @@ public class AndroidLib {
         //Log.i("INTENT", "MIME TYPE: " + intent.getType() );
         String action = intent.getAction();
         if (action == null) return null;
-        if (action.compareTo(Intent.ACTION_VIEW) == 0 ||
-                action.compareTo(Intent.ACTION_SEND) == 0 ||
-                action.compareTo(Intent.ACTION_EDIT) == 0) {
+        if (action.compareTo(Intent.ACTION_VIEW) == 0 || action.compareTo(Intent.ACTION_SEND) == 0 || action.compareTo(Intent.ACTION_EDIT) == 0) {
             ContentResolver resolver = ctx.getContentResolver();
             Uri uri;
-            String name;
             if (action.compareTo(Intent.ACTION_SEND) == 0) {
                 Bundle bundle = intent.getExtras();
                 if (bundle == null) return null;
                 uri = (Uri) bundle.get(Intent.EXTRA_STREAM);
-                name = "shared file";
             } else {
                 uri = intent.getData();
                 if (uri == null) return null;
-                name = uri.getLastPathSegment();
             }
-            if (name == null) name = "shared file";
+            String name = uri.getLastPathSegment();
+            if (name == null || name.length() == 0 || name.charAt(0) == ' ') name = "shared file";
+            if (name.contains("/"))
+            {
+                //the name can still have "/" (%2F in uri) - try to read the last path segment again:
+                int i = name.lastIndexOf("/");
+                if( i >= 0 ) name = name.substring(i + 1);
+            }
             rv = GetDir("external_files") + "/" + name;
             if (FileExists(rv)) rv = rv + "_temp";
-            Log.v("GetIntentFile", "File intent detected: " + action + " : " + intent.getDataString() + " : " + intent.getType() + " : " + rv);
+            Log.v("GetIntentFile", "action: " + action + " : " + intent.getDataString() + " : " + intent.getType());
+            Log.v("GetIntentFile", "uri: " + uri);
+            Log.v("GetIntentFile", "file name: " + rv);
             try {
                 InputStream input = resolver.openInputStream(uri);
                 OutputStream out = new FileOutputStream(new File(rv));
@@ -327,7 +366,7 @@ public class AndroidLib {
                 out.close();
                 input.close();
             } catch (Exception e) {
-                Log.e("GetIntentFile", "InputStreamToFile exception: " + e.getMessage());
+                Log.e("GetIntentFile", "IO Stream exception: " + e.getMessage());
                 rv = null;
             }
         }
@@ -563,6 +602,23 @@ public class AndroidLib {
         return rv;
     }
 
+    private String GetMIDIDevName( MidiDeviceInfo dev )
+    {
+        Bundle devProps = dev.getProperties();
+        String name = devProps.getString( MidiDeviceInfo.PROPERTY_NAME );
+        //name = "manufacturer product#ID MIDI 1.0",
+        //ID may be different after each reconnection of the device,
+        //so the user is forced to specify the device again each time :(
+        //Use man + prod instead. Disadvantage - we can't work with two identical MIDI devices.
+        String man = devProps.getString( MidiDeviceInfo.PROPERTY_MANUFACTURER );
+        String prod = devProps.getString( MidiDeviceInfo.PROPERTY_PRODUCT );
+        if( man != null && prod != null )
+        {
+            return man + " " + prod;
+        }
+        return name;
+    }
+
     //flags: 1 - for reading; 2 - for writing;
     public String GetMIDIDevports( int flags )
     {
@@ -573,8 +629,7 @@ public class AndroidLib {
         for( int i = 0; i < devs.length; i++ )
         {
             MidiDeviceInfo dev = devs[ i ];
-            Bundle devProps = dev.getProperties();
-            String devName = devProps.getString( MidiDeviceInfo.PROPERTY_NAME );
+            String devName = GetMIDIDevName( dev );
             MidiDeviceInfo.PortInfo[] portInfos = dev.getPorts();
             for( int p = 0; p < portInfos.length; p++ )
             {
@@ -622,6 +677,7 @@ public class AndroidLib {
 
     public int OpenMIDIDevport( String devport, final int port_id )
     {
+        //Log.i("MIDI","OPEN...");
         int rv = -1;
         if( sdk < 23 ) return -1; // < 6.0
         if( mm == null ) return -1;
@@ -629,8 +685,7 @@ public class AndroidLib {
         for( int i = 0; i < devs.length; i++ )
         {
             final MidiDeviceInfo devInfo = devs[ i ];
-            Bundle devProps = devInfo.getProperties();
-            String devName = devProps.getString( MidiDeviceInfo.PROPERTY_NAME );
+            String devName = GetMIDIDevName( devInfo );
             MidiDeviceInfo.PortInfo[] portInfos = devInfo.getPorts();
             for( int p = 0; p < portInfos.length; p++ )
             {
@@ -662,7 +717,7 @@ public class AndroidLib {
                             if( mdevs[ d ] != null )
                             {
                                 MidiDevice device = (MidiDevice)mdevs[ d ];
-                                if( device.getInfo().getProperties().getString( MidiDeviceInfo.PROPERTY_NAME ).equals( devName ) )
+                                if( GetMIDIDevName( device.getInfo() ).equals( devName ) )
                                 {
                                     //Device already open:
                                     mcons[ c ].dev = d; //connection <-> device
@@ -674,6 +729,7 @@ public class AndroidLib {
                         if( mcons[ c ].dev >= 0 ) break;
 
                         //Open device:
+                        final Semaphore ss = new Semaphore(0);
                         final int conIndex = c;
                         mm.openDevice( devInfo, new MidiManager.OnDeviceOpenedListener() {
                             @Override
@@ -692,8 +748,30 @@ public class AndroidLib {
                                         }
                                     }
                                 }
+                                ss.release();
+                                //Log.i("MIDI","OPEN OK");
                             }
                             }, new Handler( Looper.getMainLooper() ) );
+
+                        try {
+                            ss.acquire();
+                        } catch (InterruptedException e) {
+                            Log.e( "OpenMIDIDevport", "Open Exception", e );
+                        }
+                        if( mcons[ c ].dev < 0 )
+                        {
+                            Log.e( "OpenMIDIDevport", "Can't open device" );
+                            //Close unused ports:
+                            try {
+                                if( mcons[ c ].inputPort != null ) mcons[ c ].inputPort.close();
+                                if( mcons[ c ].outputPort != null ) mcons[ c ].outputPort.close();
+                            } catch( IOException e ) {
+                                Log.e( "close MIDI port (2)", "error", e );
+                            }
+                            //Close connection:
+                            mcons[ c ] = null;
+                            return -1;
+                        }
 
                         break; //connection is created
                     }
@@ -707,6 +785,7 @@ public class AndroidLib {
 
     public int CloseMIDIDevport( int conIndex )
     {
+        //Log.i("MIDI","CLOSE");
         if( sdk < 23 ) return -1; // < 6.0
         if( mm == null ) return -1;
         if( conIndex < 0 || conIndex >= mcons.length ) return -1;

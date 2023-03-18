@@ -1,7 +1,7 @@
 /*
     sundog_bridge.mm - SunDog<->System bridge
     This file is part of the SunDog engine.
-    Copyright (C) 2009 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2009 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -278,7 +278,7 @@ int macos_sundog_copy( sundog_engine* s, const char* filename, uint32_t flags )
     while( 1 )
     {
         NSString* dataType = (NSString*)kUTTypeUTF8PlainText;
-        int ctype = sfs_get_clipboard_type( sfs_get_file_type( filename, 0 ) );
+        int ctype = sfs_get_clipboard_type( sfs_get_file_format( filename, 0 ) );
         switch( ctype )
         {
             case sclipboard_type_image: dataType = (NSString*)kUTTypeImage; break;
@@ -411,7 +411,8 @@ char* macos_sundog_paste( sundog_engine* s, int type, uint32_t flags )
 }
 - (void)windowDidResignKey:(NSNotification *)notification
 {
-    printf( "UNFOCUS\n" );
+    macos_sundog_key( 56, 0, &g_sd.s.wm ); //SHIFT up
+    macos_sundog_key( 60, 0, &g_sd.s.wm ); //SHIFT up
     macos_sundog_key( 55, 0, &g_sd.s.wm ); //CMD up
     macos_sundog_key( 59, 0, &g_sd.s.wm ); //CTRL up
     macos_sundog_key( 58, 0, &g_sd.s.wm ); //ALT up
@@ -657,6 +658,16 @@ static MainWindowDelegate* g_main_window_delegate;
 {
     unsigned short vk = [ theEvent keyCode ];
     bool pushed = 0;
+    if( vk == 0 )
+    {
+        //Wrong vk. Check all modifiers:
+        macos_sundog_key( 55, ( [ theEvent modifierFlags ] & NSCommandKeyMask ) != 0, &g_sd.s.wm );
+        macos_sundog_key( 56, ( [ theEvent modifierFlags ] & NSShiftKeyMask ) != 0, &g_sd.s.wm );
+        macos_sundog_key( 60, 0, &g_sd.s.wm );
+        macos_sundog_key( 59, ( [ theEvent modifierFlags ] & NSControlKeyMask ) != 0, &g_sd.s.wm );
+        macos_sundog_key( 58, ( [ theEvent modifierFlags ] & NSAlternateKeyMask ) != 0, &g_sd.s.wm );
+        return;
+    }
     if( vk == 55 ) //Cmd
     {
 	if( [ theEvent modifierFlags ] & NSCommandKeyMask )

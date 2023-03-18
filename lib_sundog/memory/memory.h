@@ -7,7 +7,7 @@
     #error SMEM_FAST_MODE cant be used with SMEM_USE_NAMES
 #endif
 
-#define SMEM_MAX_NAME_SIZE 16
+#define SMEM_MAX_NAME_SIZE 24
 struct smem_block
 {
     size_t size;
@@ -60,6 +60,12 @@ inline char* smem_get_name( void* ptr )
     return NULL;
 #endif
 }
+
+class smem_wrapper //without zero initialization
+{
+    void* operator new( size_t size ) { void* p = smem_new( size ); return p; }
+    void operator delete( void* p ) { smem_free( p ); }
+};
 
 //
 // Additional functions

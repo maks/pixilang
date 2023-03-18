@@ -1,7 +1,7 @@
 /*
     pixilang_vm_builtin_fns.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -10,6 +10,9 @@
 #include "dsp.h"
 #ifndef PIX_NOSUNVOX
     #include "sunvox_engine.h"
+#else
+    #define PSYNTH_FREQ_TABLE_BODY
+    #include "psynth/psynth_freq_table.h" //g_linear_freq_tab[]
 #endif
 
 #include <errno.h>
@@ -39,6 +42,8 @@ const char* g_pix_fn_names[ FN_NUM ] =
     "set_prop",
     "remove_prop",
     "remove_props",
+    "get_proplist",
+    "remove_proplist",
     "convert_type",
     "show_memory_debug_messages",
     "zlib_pack",
@@ -56,6 +61,7 @@ const char* g_pix_fn_names[ FN_NUM ] =
     "strlen",
     "strstr",
     "sprintf",
+    "sprintf2",
     "printf",
     "fprintf",
 
@@ -248,6 +254,7 @@ const char* g_pix_fn_names[ FN_NUM ] =
     "sv_get_current_line2",
     "sv_get_current_signal_level",
     "sv_get_name",
+    "sv_set_name",
     "sv_get_bpm",
     "sv_get_tpl",
     "sv_get_length_frames",
@@ -261,28 +268,49 @@ const char* g_pix_fn_names[ FN_NUM ] =
     "sv_fload_module",
     "sv_sampler_load",
     "sv_sampler_fload",
+    "sv_metamodule_load",
+    "sv_metamodule_fload",
+    "sv_vplayer_load",
+    "sv_vplayer_fload",
     "sv_get_number_of_modules",
     "sv_find_module",
     "sv_selected_module",
     "sv_get_module_flags",
     "sv_get_module_inputs",
     "sv_get_module_outputs",
+    "sv_get_module_type",
     "sv_get_module_name",
+    "sv_set_module_name",
     "sv_get_module_xy",
+    "sv_set_module_xy",
     "sv_get_module_color",
+    "sv_set_module_color",
     "sv_get_module_finetune",
+    "sv_set_module_finetune",
+    "sv_set_module_relnote",
     "sv_get_module_scope",
     "sv_module_curve",
     "sv_get_number_of_module_ctls",
     "sv_get_module_ctl_name",
     "sv_get_module_ctl_value",
+    "sv_set_module_ctl_value",
+    "sv_get_module_ctl_min",
+    "sv_get_module_ctl_max",
+    "sv_get_module_ctl_offset",
+    "sv_get_module_ctl_type",
+    "sv_get_module_ctl_group",
+    "sv_new_pattern",
+    "sv_remove_pattern",
     "sv_get_number_of_patterns",
     "sv_find_pattern",
     "sv_get_pattern_x",
     "sv_get_pattern_y",
+    "sv_set_pattern_xy",
     "sv_get_pattern_tracks",
     "sv_get_pattern_lines",
+    "sv_set_pattern_size",
     "sv_get_pattern_name",
+    "sv_set_pattern_name",
     "sv_get_pattern_data",
     "sv_set_pattern_event",
     "sv_get_pattern_event",
@@ -438,6 +466,8 @@ pix_builtin_fn g_pix_fns[ FN_NUM ] =
     fn_get_pixi_prop_OR_set_pixi_prop,
     fn_remove_pixi_prop,
     fn_remove_pixi_props,
+    fn_get_pixi_proplist,
+    fn_remove_pixi_proplist,
     fn_convert_pixi_type,
     fn_show_smem_debug_messages,
     fn_zlib_pack,
@@ -454,6 +484,7 @@ pix_builtin_fn g_pix_fns[ FN_NUM ] =
     fn_strcmp_OR_strstr,
     fn_strlen,
     fn_strcmp_OR_strstr,
+    fn_sprintf,
     fn_sprintf,
     fn_sprintf,
     fn_sprintf,
@@ -647,6 +678,7 @@ pix_builtin_fn g_pix_fns[ FN_NUM ] =
     fn_sv_get_current_line,
     fn_sv_get_current_signal_level,
     fn_sv_get_name,
+    fn_sv_set_name,
     fn_sv_get_bpm,
     fn_sv_get_bpm,
     fn_sv_get_len,
@@ -658,30 +690,51 @@ pix_builtin_fn g_pix_fns[ FN_NUM ] =
     fn_sv_connect_disconnect_module,
     fn_sv_fload_module,
     fn_sv_fload_module,
-    fn_sv_sampler_fload,
-    fn_sv_sampler_fload,
+    fn_sv_mod_fload,
+    fn_sv_mod_fload,
+    fn_sv_mod_fload,
+    fn_sv_mod_fload,
+    fn_sv_mod_fload,
+    fn_sv_mod_fload,
     fn_sv_get_number_of_modules,
     fn_sv_find_module,
     fn_sv_selected_module,
     fn_sv_get_module_flags,
     fn_sv_get_module_inputs,
     fn_sv_get_module_inputs,
+    fn_sv_get_module_type,
     fn_sv_get_module_name,
+    fn_sv_set_module_name,
     fn_sv_get_module_xy,
+    fn_sv_set_module_xy,
     fn_sv_get_module_color,
+    fn_sv_set_module_color,
     fn_sv_get_module_finetune,
+    fn_sv_set_module_finetune,
+    fn_sv_set_module_relnote,
     fn_sv_get_module_scope,
     fn_sv_module_curve,
     fn_sv_get_module_ctl_cnt,
     fn_sv_get_module_ctl_name,
     fn_sv_get_module_ctl_value,
+    fn_sv_set_module_ctl_value,
+    fn_sv_get_module_ctl_par,
+    fn_sv_get_module_ctl_par,
+    fn_sv_get_module_ctl_par,
+    fn_sv_get_module_ctl_par,
+    fn_sv_get_module_ctl_par,
+    fn_sv_new_pat,
+    fn_sv_remove_pat,
     fn_sv_get_number_of_pats,
     fn_sv_find_pattern,
     fn_sv_get_pat,
     fn_sv_get_pat,
+    fn_sv_set_pat_xy,
     fn_sv_get_pat,
     fn_sv_get_pat,
+    fn_sv_set_pat_size,
     fn_sv_get_pat,
+    fn_sv_set_pat_name,
     fn_sv_get_pat,
     fn_sv_set_pat_event,
     fn_sv_get_pat_event,
@@ -826,8 +879,9 @@ void fn_new_pixi( PIX_BUILTIN_FN_PARAMETERS )
     if( pars_num >= 1 ) GET_VAL_FROM_STACK( xsize, 0, PIX_INT );
     if( pars_num >= 2 ) GET_VAL_FROM_STACK( ysize, 1, PIX_INT );
     if( pars_num >= 3 ) GET_VAL_FROM_STACK( type, 2, int );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_new_container( -1, xsize, ysize, type, 0, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_new_container( -1, xsize, ysize, type, 0, vm );
 }
 
 void fn_remove_pixi( PIX_BUILTIN_FN_PARAMETERS )
@@ -871,8 +925,9 @@ void fn_resize_pixi( PIX_BUILTIN_FN_PARAMETERS )
     if( pars_num >= 3 ) GET_VAL_FROM_STACK( ysize, 2, PIX_INT );
     if( pars_num >= 4 ) GET_VAL_FROM_STACK( type, 3, int );
     if( pars_num >= 5 ) GET_VAL_FROM_STACK( flags, 4, int );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_resize_container( cnum, xsize, ysize, type, flags, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_resize_container( cnum, xsize, ysize, type, flags, vm );
 }
 
 void fn_rotate_pixi( PIX_BUILTIN_FN_PARAMETERS )
@@ -884,8 +939,9 @@ void fn_rotate_pixi( PIX_BUILTIN_FN_PARAMETERS )
     int angle = 0;
     GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
     GET_VAL_FROM_STACK( angle, 1, int );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_rotate_container( cnum, angle, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_rotate_container( cnum, angle, vm );
 }
 
 void fn_clean_pixi( PIX_BUILTIN_FN_PARAMETERS )
@@ -902,7 +958,7 @@ void fn_clean_pixi( PIX_BUILTIN_FN_PARAMETERS )
 	{
 	    if( pars_num > 2 ) { GET_VAL_FROM_STACK( offset, 2, PIX_INT ); }
 	    if( pars_num > 3 ) { GET_VAL_FROM_STACK( size, 3, PIX_INT ); }
-	    pix_vm_clean_container( cnum, stack_types[ sp + 1 ], stack[ sp + 1 ], offset, size, vm );
+	    pix_vm_clean_container( cnum, stack_types[ PIX_CHECK_SP( sp + 1 ) ], stack[ PIX_CHECK_SP( sp + 1 ) ], offset, size, vm );
 	}
 	else 
 	{
@@ -918,15 +974,16 @@ void fn_clone_pixi( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     
     PIX_CID cnum;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
     if( pars_num >= 1 ) 
     {
 	GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_clone_container( cnum, vm );
+	stack[ sp2 ].i = pix_vm_clone_container( cnum, vm );
     }
     else
     {
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -1138,8 +1195,9 @@ void fn_copy_pixi( PIX_BUILTIN_FN_PARAMETERS )
 
 copy_end:
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_get_pixi_info( PIX_BUILTIN_FN_PARAMETERS )
@@ -1184,8 +1242,9 @@ void fn_get_pixi_info( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 get_info_end:
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_get_pixi_flags( PIX_BUILTIN_FN_PARAMETERS )
@@ -1203,8 +1262,9 @@ void fn_get_pixi_flags( PIX_BUILTIN_FN_PARAMETERS )
 	    flags = c->flags;
 	}
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = flags;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = flags;
 }
 
 void fn_set_pixi_flags( PIX_BUILTIN_FN_PARAMETERS )
@@ -1257,18 +1317,19 @@ void fn_get_pixi_prop_OR_set_pixi_prop( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( prop_name, 1, PIX_CID );
 	bool prop_name_str_ = false;
 	char* prop_name_str = pix_vm_make_cstring_from_container( prop_name, &prop_name_str_, vm );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
 	if( fn_num == FN_GET_PIXI_PROP )
 	{
 	    //Get:
 	    if( pars_num > 2 )
 	    {
-		stack[ sp + ( pars_num - 1 ) ] = stack[ sp + 2 ];
-		stack_types[ sp + ( pars_num - 1 ) ] = stack_types[ sp + 2 ];
+		stack[ sp2 ] = stack[ PIX_CHECK_SP( sp + 2 ) ];
+		stack_types[ sp2 ] = stack_types[ PIX_CHECK_SP( sp + 2 ) ];
 	    }
 	    else
 	    {
-		stack_types[ sp + ( pars_num - 1 ) ] = 0;
-		stack[ sp + ( pars_num - 1 ) ].i = 0;
+		stack_types[ sp2 ] = 0;
+		stack[ sp2 ].i = 0;
 	    }
 
 	    pix_sym* sym = pix_vm_get_container_property( cnum, prop_name_str, -1, vm );
@@ -1276,14 +1337,14 @@ void fn_get_pixi_prop_OR_set_pixi_prop( PIX_BUILTIN_FN_PARAMETERS )
 	    if( sym && sym->type != SYMTYPE_DELETED )
 	    {
 		if( sym->type == SYMTYPE_NUM_F )
-		    stack_types[ sp + ( pars_num - 1 ) ] = 1;
-		stack[ sp + ( pars_num - 1 ) ] = sym->val;
+		    stack_types[ sp2 ] = 1;
+		stack[ sp2 ] = sym->val;
 	    }
 	}
 	else
 	{
 	    //Set:
-	    pix_vm_set_container_property( cnum, prop_name_str, -1, stack_types[ sp + 2 ], stack[ sp + 2 ], vm );
+	    pix_vm_set_container_property( cnum, prop_name_str, -1, stack_types[ PIX_CHECK_SP( sp + 2 ) ], stack[ PIX_CHECK_SP( sp + 2 ) ], vm );
 	}
 	if( prop_name_str_ ) smem_free( prop_name_str );
     }
@@ -1327,6 +1388,62 @@ void fn_remove_pixi_props( PIX_BUILTIN_FN_PARAMETERS )
     }
 }
 
+void fn_get_pixi_proplist( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+
+    PIX_CID rv = -1;
+    if( pars_num >= 1 )
+    {
+	PIX_CID cnum;
+	GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
+	pix_vm_container* c = pix_vm_get_container( cnum, vm );
+	if( c && c->opt_data )
+	{
+	    pix_sym* ss = pix_symtab_get_list( &c->opt_data->props );
+	    if( ss )
+	    {
+		int cnt = smem_get_size( ss ) / sizeof( pix_sym );
+		rv = pix_vm_new_container( -1, cnt, 1, PIX_CONTAINER_TYPE_INT32, NULL, vm );
+		if( rv )
+		{
+		    for( int i = 0; i < cnt; i++ )
+		    {
+			PIX_CID name = pix_vm_make_container_from_cstring( ss[ i ].name, vm );
+			pix_vm_set_container_int_element( rv, i, name, vm );
+		    }
+		}
+		smem_free( ss );
+	    }
+	}
+    }
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_remove_pixi_proplist( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+
+    if( pars_num >= 1 )
+    {
+	PIX_CID cnum;
+	GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
+	pix_vm_container* c = pix_vm_get_container( cnum, vm );
+	if( c && c->opt_data )
+	{
+	    int cnt = c->xsize * c->ysize;
+	    for( int i = 0; i < cnt; i++ )
+	    {
+		PIX_CID name = pix_vm_get_container_int_element( cnum, i, vm );
+		pix_vm_remove_container( name, vm );
+	    }
+	    pix_vm_remove_container( cnum, vm );
+	}
+    }
+}
+
 void fn_convert_pixi_type( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
@@ -1341,8 +1458,9 @@ void fn_convert_pixi_type( PIX_BUILTIN_FN_PARAMETERS )
 
 	rv = pix_vm_convert_container_type( cnum, type, vm );
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_show_smem_debug_messages( PIX_BUILTIN_FN_PARAMETERS )
@@ -1369,8 +1487,9 @@ void fn_zlib_pack( PIX_BUILTIN_FN_PARAMETERS )
 	
 	rv = pix_vm_zlib_pack_container( cnum, level, vm );
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_zlib_unpack( PIX_BUILTIN_FN_PARAMETERS )
@@ -1385,8 +1504,9 @@ void fn_zlib_unpack( PIX_BUILTIN_FN_PARAMETERS )
 	
 	rv = pix_vm_zlib_unpack_container( cnum, vm );
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -1401,35 +1521,52 @@ void fn_num_to_string( PIX_BUILTIN_FN_PARAMETERS )
     {
 	PIX_CID cnum;
 	int radix = 10;
+	PIX_INT str_offset = 0;
+	bool no_null_term = false;
 	GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
 	if( pars_num >= 3 ) GET_VAL_FROM_STACK( radix, 2, int );
+	if( pars_num >= 4 ) GET_VAL_FROM_STACK( str_offset, 3, PIX_INT );
+	if( pars_num >= 5 ) GET_VAL_FROM_STACK( no_null_term, 4, bool );
 	if( vm->c && (unsigned)cnum < (unsigned)vm->c_num && vm->c[ cnum ] )
 	{
 	    pix_vm_container* c = vm->c[ cnum ];
 	    char ts[ 128 ];
-	    if( stack_types[ sp + 1 ] == 0 )
+	    if( stack_types[ PIX_CHECK_SP( sp + 1 ) ] == 0 )
 	    {
 		//int:
 		switch( radix )
 		{
-		    case 16: hex_int_to_string( stack[ sp + 1 ].i, ts ); break;
-		    default: int_to_string( stack[ sp + 1 ].i, ts ); break;
+		    case 16: hex_int_to_string( stack[ PIX_CHECK_SP( sp + 1 ) ].i, ts ); break;
+		    default: int_to_string( stack[ PIX_CHECK_SP( sp + 1 ) ].i, ts ); break;
 		}
 	    }
 	    else
 	    {
 		//float:
-		snprintf( ts, sizeof( ts ), "%f", (float)stack[ sp + 1 ].f );
+		snprintf( ts, sizeof( ts ), "%f", (float)stack[ PIX_CHECK_SP( sp + 1 ) ].f );
 	    }
-	    size_t size = c->size * g_pix_container_type_sizes[ c->type ];
+	    char* ts2 = ts;
 	    PIX_INT ts_len = (PIX_INT)smem_strlen( ts );
-	    if( ts_len > size )
+	    PIX_INT size = c->size * g_pix_container_type_sizes[ c->type ];
+	    if( str_offset + ts_len > size )
 	    {
-		if( pix_vm_resize_container( cnum, ts_len, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) return;
-		size = c->size * g_pix_container_type_sizes[ c->type ];
+		if( pix_vm_resize_container( cnum, str_offset + ts_len, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) return;
+		for( PIX_INT i = size; i < str_offset; i++ ) ((char*)c->data)[ i ] = ' ';
+		size = str_offset + ts_len;
 	    }
-	    smem_copy( c->data, ts, ts_len );
-	    if( ts_len < size ) ((char*)c->data)[ ts_len ] = 0;
+	    if( str_offset < 0 )
+	    {
+		ts_len += str_offset;
+		ts2 -= str_offset;
+		str_offset = 0;
+	    }
+	    if( ts_len > 0 )
+	    {
+	        smem_copy( (char*)c->data + str_offset, ts2, ts_len );
+		if( !no_null_term )
+		    if( str_offset + ts_len < size )
+			((char*)c->data)[ str_offset + ts_len ] = 0;
+	    }
 	}
     }
 }
@@ -1453,17 +1590,33 @@ void fn_string_to_num( PIX_BUILTIN_FN_PARAMETERS )
 	    if( c && c->data )
 	    {
 		const char* str = (const char*)c->data;
-		int size = (int)( c->size * g_pix_container_type_sizes[ c->type ] );
-		int len;
-		for( len = 0; len < size; len++ )
-		    if( str[ len ] == 0 ) break;
-		pix_str_to_num( str, len, &rv, &rv_t, vm );
+		PIX_INT size = c->size * g_pix_container_type_sizes[ c->type ];
+
+		PIX_INT str_offset = 0;
+		PIX_INT str_len = size;
+		if( pars_num >= 2 ) GET_VAL_FROM_STACK( str_offset, 1, PIX_INT );
+		if( pars_num >= 3 ) GET_VAL_FROM_STACK( str_len, 2, PIX_INT );
+
+		if( str_offset )
+		{
+		    if( str_offset < 0 ) str_offset = 0;
+		    str += str_offset;
+		}
+		if( str_offset + str_len > size ) str_len = size - str_offset;
+		if( str_len > 0 )
+		{
+		    PIX_INT l;
+		    for( l = 0; l < str_len; l++ )
+			if( str[ l ] == 0 ) break;
+		    pix_str_to_num( str, l, &rv, &rv_t, vm );
+		}
 	    }
 	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ] = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = rv_t;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ] = rv;
+    stack_types[ sp2 ] = rv_t;
 }
 
 //
@@ -1602,7 +1755,8 @@ void fn_strcmp_OR_strstr( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
     if( err == 0 )
     {
 	size_t s1_size = s1_cont->size * g_pix_container_type_sizes[ s1_cont->type ];
@@ -1645,22 +1799,22 @@ void fn_strcmp_OR_strstr( PIX_BUILTIN_FN_PARAMETERS )
 	}
 	if( fn_num == FN_STRCMP )
 	{
-	    stack[ sp + ( pars_num - 1 ) ].i = smem_strcmp( s1_str, s2_str );
+	    stack[ sp2 ].i = smem_strcmp( s1_str, s2_str );
 	}
 	else 
 	{
 	    char* substr = strstr( s1_str, s2_str );
 	    if( substr == 0 )
-		stack[ sp + ( pars_num - 1 ) ].i = -1;
+		stack[ sp2 ].i = -1;
 	    else
-		stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)( substr - s1_str ) + off1;
+		stack[ sp2 ].i = (PIX_INT)( substr - s1_str ) + off1;
 	}
 	if( s1_len == s1_size ) smem_free( s1_str );
 	if( s2_len == s2_size ) smem_free( s2_str );
     }
     else 
     {
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -1672,11 +1826,13 @@ void fn_strlen( PIX_BUILTIN_FN_PARAMETERS )
     PIX_CID str;
     PIX_INT off = 0;
 
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+
     //Get parameters:
     if( pars_num < 1 ) 
     { 
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = 0;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = 0;
 	return;
     }
     
@@ -1686,8 +1842,8 @@ void fn_strlen( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( off, 1, PIX_INT );
     }
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)pix_vm_get_container_strlen( str, (size_t)off, vm );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)pix_vm_get_container_strlen( str, (size_t)off, vm );
 }
 
 //Writes into the array pointed by str a C string consisting on a sequence of data formatted as the format argument specifies:
@@ -1697,30 +1853,46 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 
     bool err = 0;
     int i2;
-    
+
     sfs_file dest_stream = 0;
     PIX_CID str = -1;
     PIX_CID format = -1;
-    pix_vm_container* str_cont = 0;
-    pix_vm_container* format_cont = 0;
+    pix_vm_container* str_cont = NULL;
+    pix_vm_container* format_cont = NULL;
+    bool no_null_term = false;
+    PIX_INT str_ptr = 0;
     int args_off;
-    
+
     //Get parameters:
-    if( fn_num == FN_SPRINTF )
+    if( fn_num == FN_SPRINTF || fn_num == FN_SPRINTF2 )
     {
 	//sprintf:
 	while( 1 )
 	{
-	    if( pars_num < 2 ) { err = 1; break; }
 	    GET_VAL_FROM_STACK( str, 0, PIX_CID );
-	    GET_VAL_FROM_STACK( format, 1, PIX_CID );
+	    if( fn_num == FN_SPRINTF )
+	    {
+		if( pars_num < 2 ) { err = 1; break; }
+		GET_VAL_FROM_STACK( format, 1, PIX_CID );
+		args_off = 2;
+	    }
+	    else
+	    {
+		//sprintf2:
+		if( pars_num < 4 ) { err = 1; break; }
+		GET_VAL_FROM_STACK( str_ptr, 1, PIX_INT );
+		GET_VAL_FROM_STACK( no_null_term, 2, bool );
+		GET_VAL_FROM_STACK( format, 3, PIX_CID );
+		if( str_ptr < 0 ) str_ptr = 0;
+		args_off = 4;
+		fn_num = FN_SPRINTF;
+	    }
 	    if( (unsigned)str >= (unsigned)vm->c_num ) { err = 1; break; }
 	    if( (unsigned)format >= (unsigned)vm->c_num ) { err = 1; break; }
 	    str_cont = vm->c[ str ];
 	    format_cont = vm->c[ format ];
-	    if( str_cont == 0 ) { err = 1; break; }
-	    if( format_cont == 0 ) { err = 1; break; }
-	    args_off = 2;
+	    if( !str_cont ) { err = 1; break; }
+	    if( !format_cont ) { err = 1; break; }
 	    break;
 	}
     }
@@ -1745,35 +1917,49 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	    if( (unsigned)format >= (unsigned)vm->c_num ) { err = 1; break; }
 	    format_cont = vm->c[ format ];
-	    if( format_cont == 0 ) { err = 1; break; }
+	    if( !format_cont ) { err = 1; break; }
 	    break;
 	}
     }
-    
+
     //Execute:
-    if( err == 0 ) 
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    if( err == 0 )
     {
-	size_t format_size = format_cont->size * g_pix_container_type_sizes[ format_cont->type ];
-	size_t str_size;
-	size_t str_ptr;
-	char* cstr = 0;
+	PIX_INT str_size;
+	char* cstr = NULL;
 	if( fn_num == FN_SPRINTF )
 	{
 	    //sprintf:
 	    str_size = str_cont->size * g_pix_container_type_sizes[ format_cont->type ];
-	    str_ptr = 0;
+	    if( str_ptr >= str_size )
+	    {
+		PIX_INT new_size = str_ptr + 8;
+		if( pix_vm_resize_container( str, new_size, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) goto sprintf_error;
+		for( PIX_INT i = str_size; i < new_size; i++ )
+		    ((char*)str_cont->data)[ i ] = ' ';
+		str_size = new_size;
+	    }
 	}
 	else
 	{
 	    //printf:
 	    str_size = 256;
-	    str_ptr = 0;
 	    cstr = (char*)smem_new( str_size );
-	    if( cstr == 0 ) goto sprintf_error;
+	    if( !cstr ) goto sprintf_error;
 	}
 	int arg_num = 0;
 	char* format_str = (char*)format_cont->data;
-	for( size_t i = 0; i < format_size; i++ )
+	PIX_INT format_size = format_cont->size * g_pix_container_type_sizes[ format_cont->type ];
+	for( PIX_INT i = 0; i < format_size; i++ )
+	{
+	    if( format_str[ i ] == 0 )
+	    {
+		format_size = i;
+		break;
+	    }
+	}
+	for( PIX_INT i = 0; i < format_size; i++ )
 	{
 	    char c = format_str[ i ];
 	    bool c_to_output = 0;
@@ -1782,9 +1968,9 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		i++;
 		if( i >= format_size ) break;
 		c = format_str[ i ];
-		
+
 		//Parse format:
-		    
+
 		char flags[ 2 ];
 		flags[ 0 ] = 0;
 		flags[ 1 ] = 0;
@@ -1804,7 +1990,7 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		    if( i >= format_size ) break;
 		    c = format_str[ i ];
 		}
-		
+
 		char width[ 4 ];
 		i2 = 0;
 		while( 1 )
@@ -1822,7 +2008,7 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		}
 		if( i >= format_size ) break;
 		if( i2 < 4 ) width[ i2 ] = 0;
-		
+
 		char prec[ 5 ];
 		i2 = 0;
 		while( 1 )
@@ -1840,7 +2026,7 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		}
 		if( i >= format_size ) break;
 		if( i2 < 5 ) prec[ i2 ] = 0;
-		
+
 		char len[ 2 ];
 		len[ 0 ] = 0;
 		len[ 1 ] = 0;
@@ -1858,25 +2044,25 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		    if( i >= format_size ) break;
 		    c = format_str[ i ];
 		}
-		
+
 		char specifier[ 2 ];
 		specifier[ 0 ] = c;
 		specifier[ 1 ] = 0;
-		
+
 		if( specifier[ 0 ] == '%' )
 		{
 		    c_to_output = 1;
 		}
 		else 
 		{
-		    char arg_format[ 16 ];
+		    char arg_format[ 24 ];
 		    arg_format[ 0 ] = 0;
-		    strncat( arg_format, "%", 16 );
-		    strncat( arg_format, flags, 16 );
-		    strncat( arg_format, width, 16 );
-		    strncat( arg_format, prec, 16 );
-		    strncat( arg_format, len, 16 );
-		    strncat( arg_format, specifier, 16 );
+		    strcat( arg_format, "%" );
+		    strcat( arg_format, flags );
+		    strcat( arg_format, width );
+		    strcat( arg_format, prec );
+		    strcat( arg_format, len );
+		    strcat( arg_format, specifier );
 		    switch( specifier[ 0 ] )
 		    {
 			case 's': //String of characters:
@@ -1887,13 +2073,13 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 				if( (unsigned)arg_str >= (unsigned)vm->c_num ) break;
 				pix_vm_container* arg_str_cont = vm->c[ arg_str ];
 				if( arg_str_cont == 0 ) break;
-				size_t arg_str_size = pix_vm_get_container_strlen( arg_str, 0, vm );
+				PIX_INT arg_str_size = pix_vm_get_container_strlen( arg_str, 0, vm );
 				if( str_ptr + arg_str_size > str_size )
 				{
 				    if( fn_num == FN_SPRINTF )
 				    {
 					//sprintf:
-					if( pix_vm_resize_container( str, (PIX_INT)( str_ptr + arg_str_size + 8 ), 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
+					if( pix_vm_resize_container( str, str_ptr + arg_str_size + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
 					    break;
 				    }
 				    else
@@ -1962,7 +2148,7 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 					if( fn_num == FN_SPRINTF )
 					{
 					    //sprintf:
-					    if( pix_vm_resize_container( str, (PIX_INT)str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
+					    if( pix_vm_resize_container( str, str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
 						break;
 					}
 					else
@@ -2008,7 +2194,7 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 					if( fn_num == FN_SPRINTF )
 					{
 					    //sprintf:
-					    if( pix_vm_resize_container( str, (PIX_INT)str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
+					    if( pix_vm_resize_container( str, str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
 						break;
 					}
 					else
@@ -2047,14 +2233,14 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 		    if( fn_num == FN_SPRINTF )
 		    {
 			//sprintf:
-			if( pix_vm_resize_container( str, (PIX_INT)str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
+			if( pix_vm_resize_container( str, str_ptr + 8, 1, PIX_CONTAINER_TYPE_INT8, 0, vm ) ) 
 			    break;
 		    }
 		    else
 		    {
 			//printf:
 			cstr = (char*)smem_resize2( cstr, str_ptr + 8 );
-			if( cstr == 0 ) break;
+			if( !cstr ) break;
 		    }
 		    str_size = str_ptr + 8;
 		}
@@ -2074,10 +2260,8 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 	if( fn_num == FN_SPRINTF )
 	{
 	    //sprintf:
-	    if( str_ptr < str_size )
-	    {
-		((char*)str_cont->data)[ str_ptr ] = 0;
-	    }
+	    if( !no_null_term )
+		if( str_ptr < str_size ) ((char*)str_cont->data)[ str_ptr ] = 0;
 	}
 	else
 	{
@@ -2113,15 +2297,15 @@ void fn_sprintf( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	}
 	smem_free( cstr );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)str_ptr;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = str_ptr;
     }
     else 
     {
 	//Some error occured:
 sprintf_error:
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2153,8 +2337,9 @@ void fn_get_log( PIX_BUILTIN_FN_PARAMETERS )
 	smutex_unlock( &vm->log_mutex );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_get_system_log( PIX_BUILTIN_FN_PARAMETERS )
@@ -2184,8 +2369,9 @@ void fn_get_system_log( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -2195,9 +2381,9 @@ void fn_get_system_log( PIX_BUILTIN_FN_PARAMETERS )
 void fn_load( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     if( pars_num == 0 ) return;
-		
+
     PIX_CID name;
     int par1 = 0;
     GET_VAL_FROM_STACK( name, 0, PIX_CID );
@@ -2206,20 +2392,21 @@ void fn_load( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( par1, 1, int );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
 
     bool need_to_free = 0;
     char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
-    if( ts == 0 ) return;
-	
+    if( !ts ) return;
+
     char* full_path = pix_compose_full_path( vm->base_path, ts, vm );
     if( full_path )
     {
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_load( (const char*)full_path, 0, par1, vm );
+	stack[ sp2 ].i = pix_vm_load( (const char*)full_path, 0, par1, vm );
 	smem_free( full_path );
     }
-    
+
     if( need_to_free ) smem_free( ts );
 }
 
@@ -2237,9 +2424,10 @@ void fn_fload( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( par1, 1, int );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_load( 0, stream, par1, vm );
-}    
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_load( 0, stream, par1, vm );
+}
 
 void fn_save( PIX_BUILTIN_FN_PARAMETERS )
 {
@@ -2256,17 +2444,18 @@ void fn_save( PIX_BUILTIN_FN_PARAMETERS )
     GET_VAL_FROM_STACK( format, 2, int );
     if( pars_num > 3 ) GET_VAL_FROM_STACK( par1, 3, int );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
 
     bool need_to_free = 0;
     char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
-    if( ts == 0 ) return;
+    if( !ts ) return;
     
     char* full_path = pix_compose_full_path( vm->base_path, ts, vm );
     if( full_path )
     {
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_save( cnum, (const char*)full_path, 0, format, par1, vm );
+	stack[ sp2 ].i = pix_vm_save( cnum, (const char*)full_path, 0, format, par1, vm );
 	smem_free( full_path );
     }
     
@@ -2288,8 +2477,9 @@ void fn_fsave( PIX_BUILTIN_FN_PARAMETERS )
     GET_VAL_FROM_STACK( format, 2, int );
     if( pars_num > 3 ) GET_VAL_FROM_STACK( par1, 3, int );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_save( cnum, 0, stream, format, par1, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_save( cnum, 0, stream, format, par1, vm );
 }
 
 void fn_get_real_path( PIX_BUILTIN_FN_PARAMETERS )
@@ -2312,6 +2502,7 @@ void fn_get_real_path( PIX_BUILTIN_FN_PARAMETERS )
     }
 
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
         bool need_to_free = 0;
@@ -2333,8 +2524,8 @@ void fn_get_real_path( PIX_BUILTIN_FN_PARAMETERS )
             	    pix_vm_container* path2_cont = vm->c[ path2_cnum ];
             	    smem_copy( path2_cont->data, path2, path2_len );
         	}
-    		stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    		stack[ sp + ( pars_num - 1 ) ].i = path2_cnum;
+    		stack_types[ sp2 ] = 0;
+    		stack[ sp2 ].i = path2_cnum;
     	    }
     	    smem_free( path );
     	    smem_free( path2 );
@@ -2344,8 +2535,8 @@ void fn_get_real_path( PIX_BUILTIN_FN_PARAMETERS )
 
     if( err != 0 )
     {
-        stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = -1;
+        stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = -1;
     }
 }
 
@@ -2376,8 +2567,9 @@ void fn_new_flist( PIX_BUILTIN_FN_PARAMETERS )
     bool need_to_free2 = 0;
     mask = pix_vm_make_cstring_from_container( mask_cnum, &need_to_free2, vm );
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
     
     if( path )
     {
@@ -2385,7 +2577,7 @@ void fn_new_flist( PIX_BUILTIN_FN_PARAMETERS )
 	smem_zero( f );
 	f->path = (char*)smem_new( smem_strlen( path ) + 1 ); f->path[ 0 ] = 0; smem_strcat_resize( f->path, path );
 	if( mask )
-	{    
+	{
 	    f->mask = (char*)smem_new( smem_strlen( mask ) + 1 ); f->mask[ 0 ] = 0; smem_strcat_resize( f->mask, mask );
 	}
 	f->fs.start_dir = (const char*)f->path;
@@ -2395,7 +2587,7 @@ void fn_new_flist( PIX_BUILTIN_FN_PARAMETERS )
 	    f->cur_file = f->fs.name;
 	    f->cur_type = f->fs.type;
 	}
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_new_container( -1, smem_get_size( f ), 1, PIX_CONTAINER_TYPE_INT8, f, vm );
+	stack[ sp2 ].i = pix_vm_new_container( -1, smem_get_size( f ), 1, PIX_CONTAINER_TYPE_INT8, f, vm );
     }
     
     if( need_to_free1 ) smem_free( path );
@@ -2422,8 +2614,9 @@ void fn_get_flist_name( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     PIX_CID flist_cnum = -1;
     if( pars_num >= 1 ) GET_VAL_FROM_STACK( flist_cnum, 0, PIX_CID );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
     flist_data* f = (flist_data*)pix_vm_get_container_data( flist_cnum, vm );
     if( f && f->cur_file )
     {
@@ -2433,7 +2626,7 @@ void fn_get_flist_name( PIX_BUILTIN_FN_PARAMETERS )
         {
     	    pix_vm_container* name_cont = vm->c[ name_cnum ];
             smem_copy( name_cont->data, f->cur_file, name_len );
-	    stack[ sp + ( pars_num - 1 ) ].i = name_cnum;
+	    stack[ sp2 ].i = name_cnum;
         }
     }
 }
@@ -2443,12 +2636,13 @@ void fn_get_flist_type( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     PIX_CID flist_cnum = -1;
     if( pars_num >= 1 ) GET_VAL_FROM_STACK( flist_cnum, 0, PIX_CID );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
     flist_data* f = (flist_data*)pix_vm_get_container_data( flist_cnum, vm );
     if( f )
     {
-	stack[ sp + ( pars_num - 1 ) ].i = f->cur_type;
+	stack[ sp2 ].i = f->cur_type;
     }
 }
 
@@ -2457,8 +2651,9 @@ void fn_flist_next( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     PIX_CID flist_cnum = -1;
     if( pars_num >= 1 ) GET_VAL_FROM_STACK( flist_cnum, 0, PIX_CID );
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = 0;
     flist_data* f = (flist_data*)pix_vm_get_container_data( flist_cnum, vm );
     if( f )
     {
@@ -2466,7 +2661,7 @@ void fn_flist_next( PIX_BUILTIN_FN_PARAMETERS )
 	{
 	    f->cur_file = f->fs.name;
 	    f->cur_type = f->fs.type;
-	    stack[ sp + ( pars_num - 1 ) ].i = 1;
+	    stack[ sp2 ].i = 1;
 	}
     }
 }
@@ -2492,22 +2687,23 @@ void fn_get_file_size( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free = 0;
 	char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
-	
+
 	char* full_path = pix_compose_full_path( vm->base_path, ts, vm );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)sfs_get_file_size( full_path );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)sfs_get_file_size( full_path );
 	smem_free( full_path );
-	
+
 	if( need_to_free ) smem_free( ts );
     }
     else 
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = 0;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = 0;
     }
 }
 
@@ -2534,12 +2730,13 @@ void fn_get_file_format( PIX_BUILTIN_FN_PARAMETERS )
     {
 	full_path = pix_compose_full_path( vm->base_path, ts, vm );
     }
-    if( full_path || f ) rv = (PIX_INT)sfs_get_file_type( full_path, f );
+    if( full_path || f ) rv = (PIX_INT)sfs_get_file_format( full_path, f );
     smem_free( full_path );
     if( ts_ ) smem_free( ts );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_get_fformat_mime_OR_ext( PIX_BUILTIN_FN_PARAMETERS )
@@ -2547,22 +2744,23 @@ void fn_get_fformat_mime_OR_ext( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
 
     PIX_CID rv = -1;
-    int ftype = -1;
+    int fmt = -1;
 
-    if( pars_num >= 1 ) { GET_VAL_FROM_STACK( ftype, 0, int ); }
+    if( pars_num >= 1 ) { GET_VAL_FROM_STACK( fmt, 0, int ); }
 
-    if( ftype >= 0 && ftype < SFS_FILE_TYPES )
+    if( fmt >= 0 && fmt < SFS_FILE_FMTS )
     {
 	const char* s = NULL;
 	if( fn_num == FN_GET_FFORMAT_MIME )
-	    s = sfs_get_mime_type( (sfs_file_type)ftype );
+	    s = sfs_get_mime_type( (sfs_file_fmt)fmt );
 	else
-	    s = sfs_get_extension( (sfs_file_type)ftype );
+	    s = sfs_get_extension( (sfs_file_fmt)fmt );
 	rv = pix_vm_make_container_from_cstring( s, vm );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //Remove a file:
@@ -2587,22 +2785,23 @@ void fn_remove_file( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free = 0;
 	char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
 	
 	char* full_path = pix_compose_full_path( vm->base_path, ts, vm );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)sfs_remove_file( full_path );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)sfs_remove_file( full_path );
 	smem_free( full_path );
 	
 	if( need_to_free ) smem_free( ts );
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2636,6 +2835,7 @@ void fn_rename_file( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free1 = 0;
@@ -2645,8 +2845,8 @@ void fn_rename_file( PIX_BUILTIN_FN_PARAMETERS )
 	
 	char* full_path1 = pix_compose_full_path( vm->base_path, ts1, vm );
 	char* full_path2 = pix_compose_full_path( vm->base_path, ts2, vm );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)sfs_rename( full_path1, full_path2 );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)sfs_rename( full_path1, full_path2 );
 	smem_free( full_path1 );
 	smem_free( full_path2 );
 	
@@ -2655,8 +2855,8 @@ void fn_rename_file( PIX_BUILTIN_FN_PARAMETERS )
     }
     else 
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2690,6 +2890,7 @@ void fn_copy_file( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free1 = 0;
@@ -2699,18 +2900,18 @@ void fn_copy_file( PIX_BUILTIN_FN_PARAMETERS )
 	
 	char* full_path1 = pix_compose_full_path( vm->base_path, ts1, vm );
 	char* full_path2 = pix_compose_full_path( vm->base_path, ts2, vm );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_copy_file( (const char*)full_path2, (const char*)full_path1 );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_copy_file( (const char*)full_path2, (const char*)full_path1 );
 	smem_free( full_path1 );
 	smem_free( full_path2 );
 	
 	if( need_to_free1 ) smem_free( ts1 );
 	if( need_to_free2 ) smem_free( ts2 );
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2741,22 +2942,23 @@ void fn_create_directory( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free = 0;
 	char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
 	
 	char* full_path = pix_compose_full_path( vm->base_path, ts, vm );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_mkdir( (const char*)full_path, mode );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_mkdir( (const char*)full_path, mode );
 	smem_free( full_path );
 	
 	if( need_to_free ) smem_free( ts );
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2776,9 +2978,10 @@ void fn_set_disk0( PIX_BUILTIN_FN_PARAMETERS )
 void fn_get_disk0( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = vm->virt_disk0;
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = vm->virt_disk0;
 }
 
 //
@@ -2815,6 +3018,7 @@ void fn_fopen( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free1 = 0;
@@ -2829,13 +3033,13 @@ void fn_fopen( PIX_BUILTIN_FN_PARAMETERS )
 	if( need_to_free1 ) smem_free( ts1 );
 	if( need_to_free2 ) smem_free( ts2 );
 	
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)f;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)f;
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = 0;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = 0;
     }
 }
 
@@ -2860,17 +3064,18 @@ void fn_fopen_mem( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	sfs_file f = sfs_open_in_memory( data_cont->data, data_cont->size * g_pix_container_type_sizes[ data_cont->type ] );
 	sfs_set_user_data( f, data );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)f;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)f;
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = 0;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = 0;
     }
 }
 
@@ -2878,7 +3083,8 @@ void fn_fopen_mem( PIX_BUILTIN_FN_PARAMETERS )
 void fn_fclose( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 1 )
     {
 	sfs_file f;
@@ -2910,13 +3116,13 @@ void fn_fclose( PIX_BUILTIN_FN_PARAMETERS )
 		}
 	    }
 	}
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_close( f );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_close( f );
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -2924,21 +3130,22 @@ void fn_fclose( PIX_BUILTIN_FN_PARAMETERS )
 void fn_fputc( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     int c;
     sfs_file f;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 2 ) 
     {
 	GET_VAL_FROM_STACK( c, 0, int );
 	GET_VAL_FROM_STACK( f, 1, sfs_file );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_putc( c, f );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_putc( c, f );
     }
     else if( pars_num == 1 )
     {
 	GET_VAL_FROM_STACK( c, 0, int );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_putc( c, SFS_STDOUT );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_putc( c, SFS_STDOUT );
     }
 }
 
@@ -2972,8 +3179,9 @@ void fn_fputs( PIX_BUILTIN_FN_PARAMETERS )
 	    rv = (PIX_INT)sfs_write( cont->data, 1, str_len, f );
 	}
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_fgets_OR_fwrite_OR_fread( PIX_BUILTIN_FN_PARAMETERS )
@@ -3031,8 +3239,9 @@ void fn_fgets_OR_fwrite_OR_fread( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	}
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //Get a byte from a stream:
@@ -3041,33 +3250,35 @@ void fn_fgetc( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     
     sfs_file f;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 1 ) 
     {
 	GET_VAL_FROM_STACK( f, 0, sfs_file );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_getc( f );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_getc( f );
     }
     else if( pars_num == 0 )
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_getc( SFS_STDIN );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_getc( SFS_STDIN );
     }
 }
 
 void fn_feof_OF_fflush_OR_ftell( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 1 )
     {
 	sfs_file f;
 	GET_VAL_FROM_STACK( f, 0, sfs_file );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	stack_types[ sp2 ] = 0;
 	switch( fn_num )
 	{
-	    case FN_FEOF: stack[ sp + ( pars_num - 1 ) ].i = sfs_eof( f ); break;
-	    case FN_FFLUSH: stack[ sp + ( pars_num - 1 ) ].i = sfs_flush( f ); break;
-	    case FN_FTELL: stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)sfs_tell( f ); break;
+	    case FN_FEOF: stack[ sp2 ].i = sfs_eof( f ); break;
+	    case FN_FFLUSH: stack[ sp2 ].i = sfs_flush( f ); break;
+	    case FN_FTELL: stack[ sp2 ].i = (PIX_INT)sfs_tell( f ); break;
 	}
     }
 }
@@ -3084,8 +3295,9 @@ void fn_fseek( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( f, 0, sfs_file );
 	GET_VAL_FROM_STACK( offset, 1, PIX_INT );
 	GET_VAL_FROM_STACK( mode, 2, PIX_INT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = sfs_seek( f, offset, mode );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = sfs_seek( f, offset, mode );
     }
 }
 
@@ -3122,6 +3334,7 @@ void fn_setxattr( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free1 = 0;
@@ -3142,21 +3355,22 @@ void fn_setxattr( PIX_BUILTIN_FN_PARAMETERS )
 	if( need_to_free1 ) smem_free( ts1 );
 	if( need_to_free2 ) smem_free( ts2 );
 	
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)res;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)res;
     }
-    else 
+    else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 
 #else
 
     //Not *NIX compatible system:
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
-    
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
+
 #endif
 
 }
@@ -3240,8 +3454,9 @@ void fn_frame( PIX_BUILTIN_FN_PARAMETERS )
     }
 
     vm->prev_frame_res = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_vsync( PIX_BUILTIN_FN_PARAMETERS )
@@ -3251,8 +3466,9 @@ void fn_vsync( PIX_BUILTIN_FN_PARAMETERS )
     bool vsync = false;
     if( pars_num >= 1 ) { GET_VAL_FROM_STACK( vsync, 0, bool ); }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = 0;
 
     sundog_event evt;
     smem_clear_struct( evt );
@@ -3288,8 +3504,9 @@ void fn_get_pixel_size( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = vm->pixel_size;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = vm->pixel_size;
 }
 
 void fn_set_screen( PIX_BUILTIN_FN_PARAMETERS )
@@ -3308,8 +3525,9 @@ void fn_get_screen( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = vm->screen;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = vm->screen;
 }
 
 void fn_set_zbuf( PIX_BUILTIN_FN_PARAMETERS )
@@ -3341,9 +3559,10 @@ void fn_set_zbuf( PIX_BUILTIN_FN_PARAMETERS )
 void fn_get_zbuf( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = vm->zbuf;
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = vm->zbuf;
 }
 
 void fn_clear_zbuf( PIX_BUILTIN_FN_PARAMETERS )
@@ -3381,8 +3600,9 @@ void fn_get_color( PIX_BUILTIN_FN_PARAMETERS )
 	if( r > 255 ) r = 255;
 	if( g > 255 ) g = 255;
 	if( b > 255 ) b = 255;
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (COLORSIGNED)get_color( r, g, b );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (COLORSIGNED)get_color( r, g, b );
     }
 }
 
@@ -3394,8 +3614,9 @@ void fn_get_red( PIX_BUILTIN_FN_PARAMETERS )
     {
 	PIX_INT c;
 	GET_VAL_FROM_STACK( c, 0, PIX_INT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)red( c );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)red( c );
     }
 }
 
@@ -3407,8 +3628,9 @@ void fn_get_green( PIX_BUILTIN_FN_PARAMETERS )
     {
 	PIX_INT c;
 	GET_VAL_FROM_STACK( c, 0, PIX_INT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)green( c );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)green( c );
     }
 }
 
@@ -3420,8 +3642,9 @@ void fn_get_blue( PIX_BUILTIN_FN_PARAMETERS )
     {
 	PIX_INT c;
 	GET_VAL_FROM_STACK( c, 0, PIX_INT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)blue( c );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)blue( c );
     }
 }
 
@@ -3435,8 +3658,9 @@ void fn_get_blend( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( c1, 0, PIX_INT );
 	GET_VAL_FROM_STACK( c2, 1, PIX_INT );
 	GET_VAL_FROM_STACK( v, 2, PIX_INT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (COLORSIGNED)blend( c1, c2, (int)v );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (COLORSIGNED)blend( c1, c2, (int)v );
     }
 }
 
@@ -3457,9 +3681,10 @@ void fn_transp( PIX_BUILTIN_FN_PARAMETERS )
 void fn_get_transp( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = vm->transp;
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = vm->transp;
 }
 
 void fn_clear( PIX_BUILTIN_FN_PARAMETERS )
@@ -3515,8 +3740,8 @@ void fn_clear( PIX_BUILTIN_FN_PARAMETERS )
 	return;
     }
 #endif
-    
-    if( vm->screen_ptr == 0 ) return;
+
+    if( !vm->screen_ptr ) return;
     COLOR c = CLEARCOLOR;
     if( pars_num >= 1 )
     {
@@ -3582,6 +3807,12 @@ void fn_dot( PIX_BUILTIN_FN_PARAMETERS )
 	    GET_VAL_FROM_STACK( v[ 0 ], 0, float );
 	    GET_VAL_FROM_STACK( v[ 1 ], 1, float );
 	    GET_VAL_FROM_STACK( v[ 2 ], 2, float );
+	}
+	if( !vm->gl_no_2d_line_shift )
+	{
+	    //Remove it in future major update?
+	    v[ 0 ] += GL_2D_LINE_SHIFT;
+	    v[ 1 ] += GL_2D_LINE_SHIFT;
 	}
 	gl_program_struct* p = vm->gl_prog_solid;
 	if( vm->gl_user_defined_prog ) p = vm->gl_user_defined_prog;
@@ -3700,16 +3931,17 @@ void fn_get_dot( PIX_BUILTIN_FN_PARAMETERS )
     }
     x += vm->screen_xsize / 2;
     y += vm->screen_ysize / 2;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
     if( (unsigned)x < (unsigned)vm->screen_xsize &&
 	(unsigned)y < (unsigned)vm->screen_ysize )
     {
 	COLORPTR p = vm->screen_ptr + y * vm->screen_xsize + x;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)*p;
+	stack[ sp2 ].i = (PIX_INT)*p;
     }
     else 
     {
-	stack[ sp + ( pars_num - 1 ) ].i = 0;
+	stack[ sp2 ].i = 0;
     }
 }
 
@@ -3762,6 +3994,14 @@ void fn_line( PIX_BUILTIN_FN_PARAMETERS )
 	    GET_VAL_FROM_STACK( v[ 4 ], 4, float );
 	    GET_VAL_FROM_STACK( v[ 5 ], 5, float );
 	}
+	if( !vm->gl_no_2d_line_shift )
+        {
+    	    //Remove it in future major update?
+            v[ 0 ] += GL_2D_LINE_SHIFT;
+            v[ 1 ] += GL_2D_LINE_SHIFT;
+            v[ 3 ] += GL_2D_LINE_SHIFT;
+            v[ 4 ] += GL_2D_LINE_SHIFT;
+        }
 	gl_program_struct* p = vm->gl_prog_solid;
 	if( vm->gl_user_defined_prog ) p = vm->gl_user_defined_prog;
 	if( vm->gl_current_prog != p )
@@ -3877,7 +4117,7 @@ void fn_box( PIX_BUILTIN_FN_PARAMETERS )
 
     if( vm->screen_ptr == 0 ) return;
     if( vm->transp == 0 ) return;
-		
+
     COLOR c = COLORMASK;
     if( pars_num < 4 ) return;
     if( pars_num >= 5 )
@@ -4193,7 +4433,7 @@ void fn_triangles3d( PIX_BUILTIN_FN_PARAMETERS )
     		if( gl->texture_format == GL_ALPHA )
 	    	    p = vm->gl_prog_tex_alpha_solid;
         	else
-    	    	    p = vm->gl_prog_tex_rgb_solid;
+    	    	    p = vm->gl_prog_tex_rgba_solid;
     	    }
     	    if( vm->gl_user_defined_prog ) p = vm->gl_user_defined_prog;
 	    if( vm->gl_current_prog != p )
@@ -4416,8 +4656,9 @@ void fn_get_key_color( PIX_BUILTIN_FN_PARAMETERS )
     
     GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_get_container_key_color( cnum, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_get_container_key_color( cnum, vm );
 }
 
 void fn_set_alpha( PIX_BUILTIN_FN_PARAMETERS )
@@ -4448,8 +4689,9 @@ void fn_get_alpha( PIX_BUILTIN_FN_PARAMETERS )
     
     GET_VAL_FROM_STACK( cnum, 0, PIX_CID );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_get_container_alpha( cnum, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_get_container_alpha( cnum, vm );
 }
 
 void fn_print( PIX_BUILTIN_FN_PARAMETERS )
@@ -4514,8 +4756,9 @@ void fn_get_text_xysize( PIX_BUILTIN_FN_PARAMETERS )
     if( pars_num > 3 ) GET_VAL_FROM_STACK( str_offset, 3, PIX_INT );
     if( pars_num > 4 ) GET_VAL_FROM_STACK( str_size, 4, PIX_INT );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = 0;
 
     if( (unsigned)cnum < (unsigned)vm->c_num )
     {
@@ -4538,7 +4781,7 @@ void fn_get_text_xysize( PIX_BUILTIN_FN_PARAMETERS )
 		    case FN_GET_TEXT_YSIZE: rv = ysize; break;
 		    default: rv = ( xsize & 0xFFFF ) | ( ( ysize & 0xFFFF ) << 16 ); break;
 		}
-		stack[ sp + ( pars_num - 1 ) ].i = rv;
+		stack[ sp2 ].i = rv;
 	    }
 	}
     }
@@ -4549,21 +4792,54 @@ void fn_set_font( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
 
     if( pars_num < 2 ) return;
-    
+
     uint32_t first_char;
     PIX_CID cnum;
     int xchars = 0;
     int ychars = 0;
-    
+
+    uint32_t last_char = 0;
+    int char_xsize = 0;
+    int char_ysize = 0;
+    int char_xsize2 = 0;
+    int char_ysize2 = 0;
+    int grid_xoffset = 0;
+    int grid_yoffset = 0;
+    int grid_cell_xsize = 0;
+    int grid_cell_ysize = 0;
+
     GET_VAL_FROM_STACK( first_char, 0, uint32_t );
     GET_VAL_FROM_STACK( cnum, 1, PIX_CID );
-    if( pars_num >= 3 )
-	GET_VAL_FROM_STACK( xchars, 2, int );
-    if( pars_num >= 4 )
-	GET_VAL_FROM_STACK( ychars, 3, int );
-	
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)pix_vm_set_font( first_char, cnum, xchars, ychars, vm );
+    if( pars_num >= 3 )	GET_VAL_FROM_STACK( xchars, 2, int );
+    if( pars_num >= 4 )	GET_VAL_FROM_STACK( ychars, 3, int );
+
+    if( pars_num >= 5 ) GET_VAL_FROM_STACK( last_char, 4, uint32_t );
+    if( pars_num >= 6 ) GET_VAL_FROM_STACK( char_xsize, 5, int );
+    if( pars_num >= 7 ) GET_VAL_FROM_STACK( char_ysize, 6, int );
+    if( pars_num >= 8 ) GET_VAL_FROM_STACK( char_xsize2, 7, int );
+    if( pars_num >= 9 ) GET_VAL_FROM_STACK( char_ysize2, 8, int );
+    if( pars_num >= 10 ) GET_VAL_FROM_STACK( grid_xoffset, 9, int );
+    if( pars_num >= 11 ) GET_VAL_FROM_STACK( grid_yoffset, 10, int );
+    if( pars_num >= 12 ) GET_VAL_FROM_STACK( grid_cell_xsize, 11, int );
+    if( pars_num >= 13 ) GET_VAL_FROM_STACK( grid_cell_ysize, 12, int );
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_set_font(
+	first_char,
+	last_char,
+	cnum,
+        xchars,
+	ychars,
+	char_xsize,
+	char_ysize,
+	char_xsize2,
+	char_ysize2,
+	grid_xoffset,
+	grid_yoffset,
+	grid_cell_xsize,
+	grid_cell_ysize,
+	vm );
 }
 
 void fn_get_font( PIX_BUILTIN_FN_PARAMETERS )
@@ -4577,11 +4853,12 @@ void fn_get_font( PIX_BUILTIN_FN_PARAMETERS )
     
     pix_vm_font* font = pix_vm_get_font_for_char( char_code, vm );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
     if( font )
-	stack[ sp + ( pars_num - 1 ) ].i = font->font;
+	stack[ sp2 ].i = font->font;
     else
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack[ sp2 ].i = -1;
 }
 
 void fn_effector( PIX_BUILTIN_FN_PARAMETERS )
@@ -5452,8 +5729,9 @@ void fn_split_rgb( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -5463,12 +5741,13 @@ void fn_split_rgb( PIX_BUILTIN_FN_PARAMETERS )
 void fn_set_gl_callback( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
 #ifdef OPENGL
     if( pars_num > 0 )
     {
 	gl_lock( vm->wm );
-	
+
 	PIX_ADDR callback;
 	PIX_VAL userdata;
 	userdata.i = 0;
@@ -5480,27 +5759,27 @@ void fn_set_gl_callback( PIX_BUILTIN_FN_PARAMETERS )
 		callback &= PIX_INT_ADDRESS_MASK;
 	    if( pars_num > 1 ) 
 	    {
-		userdata = stack[ sp + 1 ];
-		userdata_type = stack_types[ sp + 1 ];
+		userdata = stack[ PIX_CHECK_SP( sp + 1 ) ];
+		userdata_type = stack_types[ PIX_CHECK_SP( sp + 1 ) ];
 	    }
 	    vm->gl_userdata = userdata;
 	    vm->gl_userdata_type = userdata_type;
 	    vm->gl_callback = callback;
-	    stack[ sp + ( pars_num - 1 ) ].i = 0;
-	    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	    stack[ sp2 ].i = 0;
+	    stack_types[ sp2 ] = 0;
 	}
 	else
 	{
-	    stack[ sp + ( pars_num - 1 ) ].i = -1;
-	    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	    stack[ sp2 ].i = -1;
+	    stack_types[ sp2 ] = 0;
 	    PIX_VM_LOG( "set_gl_callback() error: wrong callback address %d\n", (int)callback );
 	}
-	
+
 	gl_unlock( vm->wm );
     }
 #else
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    stack[ sp2 ].i = -1;
+    stack_types[ sp2 ] = 0;
     PIX_VM_LOG( "set_gl_callback() error: no OpenGL. Please use the special Pixilang version with OpenGL support.\n" );
 #endif
 }
@@ -5633,9 +5912,9 @@ void fn_gl_draw_arrays( PIX_BUILTIN_FN_PARAMETERS )
         else
         {
 	    if( color_array >= 0 )
-		p = vm->gl_prog_tex_rgb_gradient;
+		p = vm->gl_prog_tex_rgba_gradient;
 	    else
-		p = vm->gl_prog_tex_rgb_solid;
+		p = vm->gl_prog_tex_rgba_solid;
 	}
     }
     else
@@ -5781,9 +6060,17 @@ void fn_gl_bind_framebuffer( PIX_BUILTIN_FN_PARAMETERS )
 		glViewport( 0, 0, c->xsize, c->ysize );
 	    matrix_4x4_reset( vm->gl_wm_transform );
 	    //matrix_4x4_ortho( -1, 1, -1, 1, -1, 1, vm->gl_wm_transform );
+	    vm->gl_no_2d_line_shift = true;
 	    if( ( flags & GL_BFB_IDENTITY_MATRIX ) == 0 )
 	    {
-		matrix_4x4_ortho( -(float)c->xsize / 2 + 0.375, (float)c->xsize / 2 + 0.375, (float)c->ysize / 2 + 0.375, -(float)c->ysize / 2 + 0.375, -GL_ORTHO_MAX_DEPTH, GL_ORTHO_MAX_DEPTH, vm->gl_wm_transform );
+		/*
+		    //0.375 shift has been removed on 15 dec 2022 (see details in lib_sundog/wm/wm_opengl.hpp)
+		    matrix_4x4_ortho( -(float)c->xsize / 2 + 0.375, (float)c->xsize / 2 + 0.375, (float)c->ysize / 2 + 0.375, -(float)c->ysize / 2 + 0.375, -GL_ORTHO_MAX_DEPTH, GL_ORTHO_MAX_DEPTH, vm->gl_wm_transform );
+		*/
+		int hxsize = c->xsize / 2;
+		int hysize = c->ysize / 2;
+		matrix_4x4_ortho( -hxsize, c->xsize - hxsize, c->ysize - hysize, -hysize, -GL_ORTHO_MAX_DEPTH, GL_ORTHO_MAX_DEPTH, vm->gl_wm_transform );
+		vm->gl_no_2d_line_shift = true;
 	    }
 	    pix_vm_gl_matrix_set( vm );
 
@@ -5809,10 +6096,10 @@ void fn_gl_bind_texture( PIX_BUILTIN_FN_PARAMETERS )
         GET_VAL_FROM_STACK( texture_unit, 1, int );
 
 	pix_vm_container* c = pix_vm_get_container( cnum, vm );
-	if( c == 0 ) break;
+	if( !c ) break;
 
 	pix_vm_container_gl_data* gl = pix_vm_create_container_gl_data( cnum, vm );
-    	if( gl == 0 ) break;
+    	if( !gl ) break;
 
 	glActiveTexture( GL_TEXTURE0 + texture_unit );
         if( texture_unit == 0 )
@@ -5843,14 +6130,15 @@ void fn_gl_get_int( PIX_BUILTIN_FN_PARAMETERS )
     }
 
     //Default retval:
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = 0;
+    stack_types[ sp2 ] = 0;
 
     if( vm->screen != PIX_GL_SCREEN ) return;
     
     int gl_state_v = 0;
     glGetIntegerv( value, &gl_state_v );
-    stack[ sp + ( pars_num - 1 ) ].i = gl_state_v;
+    stack[ sp2 ].i = gl_state_v;
 #endif
 }
 
@@ -5867,14 +6155,15 @@ void fn_gl_get_float( PIX_BUILTIN_FN_PARAMETERS )
     }
 
     //Default retval:
-    stack[ sp + ( pars_num - 1 ) ].f = 0;
-    stack_types[ sp + ( pars_num - 1 ) ] = 1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].f = 0;
+    stack_types[ sp2 ] = 1;
 
     if( vm->screen != PIX_GL_SCREEN ) return;
     
     float gl_state_v = 0;
     glGetFloatv( value, &gl_state_v );
-    stack[ sp + ( pars_num - 1 ) ].f = gl_state_v;
+    stack[ sp2 ].f = gl_state_v;
 #endif
 }
 
@@ -5908,7 +6197,7 @@ void fn_gl_new_prog( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	}
 	else
-	{	
+	{
 	    vshader_str = pix_vm_make_cstring_from_container( vshader, &vshader_m, vm );
 	}
 	if( fshader < 0 )
@@ -5921,7 +6210,7 @@ void fn_gl_new_prog( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	}
 	else
-	{	
+	{
 	    fshader_str = pix_vm_make_cstring_from_container( fshader, &fshader_m, vm );
 	}
 	if( vshader_str && fshader_str )
@@ -5936,10 +6225,11 @@ void fn_gl_new_prog( PIX_BUILTIN_FN_PARAMETERS )
 	}
 	if( vshader_m ) smem_free( vshader_str );
 	if( fshader_m ) smem_free( fshader_str );
-    }    
+    }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 #endif
 }
 
@@ -5985,7 +6275,7 @@ void fn_gl_uniform( PIX_BUILTIN_FN_PARAMETERS )
 	uniform_loc--;
 	for( int i = 1; i < pars_num; i++ )
 	{
-	    if( stack_types[ sp + i ] != 0 )
+	    if( stack_types[ PIX_CHECK_SP( sp + i ) ] != 0 )
 	    {
 		float_vals = true;
 		break;
@@ -6208,8 +6498,9 @@ void fn_pixi_unpack_frame( PIX_BUILTIN_FN_PARAMETERS )
 	rv = pix_vm_container_hdata_unpack_frame( cnum, vm );
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_pack_frame( PIX_BUILTIN_FN_PARAMETERS )
@@ -6224,8 +6515,9 @@ void fn_pixi_pack_frame( PIX_BUILTIN_FN_PARAMETERS )
 	rv = pix_vm_container_hdata_pack_frame( cnum, vm );
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_create_anim( PIX_BUILTIN_FN_PARAMETERS )
@@ -6275,8 +6567,9 @@ void fn_pixi_create_anim( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_remove_anim( PIX_BUILTIN_FN_PARAMETERS )
@@ -6298,8 +6591,9 @@ void fn_pixi_remove_anim( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_clone_frame( PIX_BUILTIN_FN_PARAMETERS )
@@ -6318,8 +6612,9 @@ void fn_pixi_clone_frame( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_remove_frame( PIX_BUILTIN_FN_PARAMETERS )
@@ -6338,8 +6633,9 @@ void fn_pixi_remove_frame( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_pixi_play( PIX_BUILTIN_FN_PARAMETERS )
@@ -6439,7 +6735,7 @@ void fn_video_open( PIX_BUILTIN_FN_PARAMETERS )
         char* name = pix_vm_make_cstring_from_container( name_cnum, &need_to_free, vm );
 
 	if( pars_num >= 3 ) GET_VAL_FROM_STACK( capture_callback, 2, PIX_ADDR );
-	if( pars_num >= 4 ) { capture_user_data = stack[ sp + 3 ]; capture_user_data_type = stack_types[ sp + 3 ]; }
+	if( pars_num >= 4 ) { capture_user_data = stack[ PIX_CHECK_SP( sp + 3 ) ]; capture_user_data_type = stack_types[ PIX_CHECK_SP( sp + 3 ) ]; }
         
         rv = pix_vm_new_container( -1, sizeof( pix_video_struct ), 1, PIX_CONTAINER_TYPE_INT8, 0, vm );
         if( rv >= 0 )
@@ -6466,8 +6762,9 @@ void fn_video_open( PIX_BUILTIN_FN_PARAMETERS )
         if( need_to_free ) smem_free( name );
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_video_close( PIX_BUILTIN_FN_PARAMETERS )
@@ -6489,8 +6786,9 @@ void fn_video_close( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_video_start( PIX_BUILTIN_FN_PARAMETERS )
@@ -6512,8 +6810,9 @@ void fn_video_start( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_video_stop( PIX_BUILTIN_FN_PARAMETERS )
@@ -6535,8 +6834,9 @@ void fn_video_stop( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_video_props( PIX_BUILTIN_FN_PARAMETERS )
@@ -6598,8 +6898,9 @@ void fn_video_props( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_video_capture_frame( PIX_BUILTIN_FN_PARAMETERS )
@@ -6740,8 +7041,9 @@ void fn_video_capture_frame( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 //
@@ -7033,9 +7335,10 @@ void fn_t_point( PIX_BUILTIN_FN_PARAMETERS )
 void fn_set_audio_callback( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     if( pars_num > 0 )
     {
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
 	PIX_ADDR callback;
 	PIX_VAL userdata;
 	userdata.i = 0;
@@ -7051,20 +7354,20 @@ void fn_set_audio_callback( PIX_BUILTIN_FN_PARAMETERS )
 		callback &= PIX_INT_ADDRESS_MASK;
 	    if( pars_num > 1 ) 
 	    {
-		userdata = stack[ sp + 1 ];
-		userdata_type = stack_types[ sp + 1 ];
+		userdata = stack[ PIX_CHECK_SP( sp + 1 ) ];
+		userdata_type = stack_types[ PIX_CHECK_SP( sp + 1 ) ];
 	    }
 	    if( pars_num > 2 ) { GET_VAL_FROM_STACK( freq, 2, int ); }
 	    if( pars_num > 3 ) { GET_VAL_FROM_STACK( format, 3, int ); }
 	    if( pars_num > 4 ) { GET_VAL_FROM_STACK( channels, 4, int ); }
 	    if( pars_num > 5 ) { GET_VAL_FROM_STACK( flags, 5, int ); }
-	    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_set_audio_callback( callback, userdata, userdata_type, freq, (pix_container_type)format, channels, flags, vm );
-	    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	    stack[ sp2 ].i = pix_vm_set_audio_callback( callback, userdata, userdata_type, freq, (pix_container_type)format, channels, flags, vm );
+	    stack_types[ sp2 ] = 0;
 	}
 	else
 	{
-	    stack[ sp + ( pars_num - 1 ) ].i = -1;
-            stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	    stack[ sp2 ].i = -1;
+            stack_types[ sp2 ] = 0;
             PIX_VM_LOG( "set_audio_callback() error: wrong callback address %d\n", (int)callback );
 	}
     }
@@ -7101,8 +7404,9 @@ void fn_get_audio_sample_rate( PIX_BUILTIN_FN_PARAMETERS )
 	rv = pix_vm_get_audio_sample_rate( source, vm );
     }
 
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack[ sp2 ].i = rv;
+    stack_types[ sp2 ] = 0;
 }
 
 void fn_get_note_freq( PIX_BUILTIN_FN_PARAMETERS )
@@ -7124,8 +7428,9 @@ void fn_get_note_freq( PIX_BUILTIN_FN_PARAMETERS )
 	    rv = ( g_linear_freq_tab[ (7680*4+p) % 768 ] << -( ( (7680*4+p) / 768 ) - (7680*4)/768 ) ); //if pitch is negative
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -7161,8 +7466,9 @@ void fn_midi_open_client( PIX_BUILTIN_FN_PARAMETERS )
 	if( need_to_free ) smem_free( name );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_close_client( PIX_BUILTIN_FN_PARAMETERS )
@@ -7188,8 +7494,9 @@ void fn_midi_close_client( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_get_device( PIX_BUILTIN_FN_PARAMETERS )
@@ -7233,8 +7540,9 @@ void fn_midi_get_device( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_open_port( PIX_BUILTIN_FN_PARAMETERS )
@@ -7269,8 +7577,9 @@ void fn_midi_open_port( PIX_BUILTIN_FN_PARAMETERS )
 	if( need_to_free2 ) smem_free( dev_name );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_reopen_port( PIX_BUILTIN_FN_PARAMETERS )
@@ -7294,8 +7603,9 @@ void fn_midi_reopen_port( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_close_port( PIX_BUILTIN_FN_PARAMETERS )
@@ -7319,8 +7629,9 @@ void fn_midi_close_port( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_get_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -7359,8 +7670,9 @@ void fn_midi_get_event( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_get_event_time( PIX_BUILTIN_FN_PARAMETERS )
@@ -7388,8 +7700,9 @@ void fn_midi_get_event_time( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_next_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -7413,8 +7726,9 @@ void fn_midi_next_event( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_midi_send_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -7452,8 +7766,9 @@ void fn_midi_send_event( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -7469,7 +7784,7 @@ void fn_start_timer( PIX_BUILTIN_FN_PARAMETERS )
     {
 	GET_VAL_FROM_STACK( tnum, 0, int );
     }
-    if( (unsigned)tnum < (unsigned)( sizeof( vm->timers ) / sizeof( uint ) ) )
+    if( (unsigned)tnum < (unsigned)( vm->timers_num ) )
     {
 	vm->timers[ tnum ] = stime_ticks();
     }
@@ -7478,19 +7793,20 @@ void fn_start_timer( PIX_BUILTIN_FN_PARAMETERS )
 void fn_get_timer( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     int tnum = 0;
     if( pars_num >= 1 )
     {
 	GET_VAL_FROM_STACK( tnum, 0, int );
     }
-    if( (unsigned)tnum < (unsigned)( sizeof( vm->timers ) / sizeof( uint ) ) )
+    if( (unsigned)tnum < (unsigned)( vm->timers_num ) )
     {
 	uint t = stime_ticks() - vm->timers[ tnum ];
 	t *= 1000;
 	t /= stime_ticks_per_second();
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)t;
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)t;
     }
 }
 
@@ -7498,64 +7814,72 @@ void fn_get_year( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_year();
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_year();
 }
 
 void fn_get_month( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_month();
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_month();
 }
 
 void fn_get_day( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_day();
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_day();
 }
 
 void fn_get_hours( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_hours();
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_hours();
 }
 
 void fn_get_minutes( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_minutes();
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_minutes();
 }
 
 void fn_get_seconds( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)stime_seconds();
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)stime_seconds();
 }
 
 void fn_get_ticks( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (uint32_t)stime_ticks_hires();
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (uint32_t)stime_ticks_hires();
 }
 
 void fn_get_tps( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (uint)stime_ticks_per_second_hires();
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (uint)stime_ticks_per_second_hires();
 }
 
 void fn_sleep( PIX_BUILTIN_FN_PARAMETERS )
@@ -7578,8 +7902,9 @@ void fn_get_event( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_get_event( vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_get_event( vm );
 }
 
 void fn_set_quit_action( PIX_BUILTIN_FN_PARAMETERS )
@@ -7626,8 +7951,8 @@ void fn_thread_create( PIX_BUILTIN_FN_PARAMETERS )
     		fun.addr = function;
 		fun.p[ 0 ].i = rv;
 		fun.p_types[ 0 ] = 0;
-		fun.p[ 1 ] = stack[ sp + 1 ];
-		fun.p_types[ 1 ] = stack_types[ sp + 1 ];
+		fun.p[ 1 ] = stack[ PIX_CHECK_SP( sp + 1 ) ];
+		fun.p_types[ 1 ] = stack_types[ PIX_CHECK_SP( sp + 1 ) ];
 		fun.p_num = 2;
 		pix_vm_run( rv, 1, &fun, PIX_VM_CALL_FUNCTION, vm );
 	    }
@@ -7637,8 +7962,9 @@ void fn_thread_create( PIX_BUILTIN_FN_PARAMETERS )
 	    }
 	}
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_thread_destroy( PIX_BUILTIN_FN_PARAMETERS )
@@ -7654,8 +7980,9 @@ void fn_thread_destroy( PIX_BUILTIN_FN_PARAMETERS )
 	if( pars_num >= 2 ) GET_VAL_FROM_STACK( timeout, 1, int );
 	rv = pix_vm_destroy_thread( thread_num, timeout, vm );
     }
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_mutex_create( PIX_BUILTIN_FN_PARAMETERS )
@@ -7675,8 +8002,9 @@ void fn_mutex_create( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_mutex_destroy( PIX_BUILTIN_FN_PARAMETERS )
@@ -7700,8 +8028,9 @@ void fn_mutex_destroy( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_mutex_lock( PIX_BUILTIN_FN_PARAMETERS )
@@ -7724,8 +8053,9 @@ void fn_mutex_lock( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_mutex_trylock( PIX_BUILTIN_FN_PARAMETERS )
@@ -7748,8 +8078,9 @@ void fn_mutex_trylock( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_mutex_unlock( PIX_BUILTIN_FN_PARAMETERS )
@@ -7772,8 +8103,9 @@ void fn_mutex_unlock( PIX_BUILTIN_FN_PARAMETERS )
 	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -7783,354 +8115,305 @@ void fn_mutex_unlock( PIX_BUILTIN_FN_PARAMETERS )
 void fn_acos( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = acos( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = acos( v );
 }
 
 void fn_acosh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = acosh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = acosh( v );
 }
 
 void fn_asin( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = asin( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = asin( v );
 }
 
 void fn_asinh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = asinh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = asinh( v );
 }
 
 void fn_atan( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = atan( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = atan( v );
 }
 
 void fn_atanh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = atanh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = atanh( v );
 }
 
 void fn_atan2( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 2 )
-    {
-	PIX_FLOAT v1;
-	PIX_FLOAT v2;
-	GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
-	GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = atan2( v1, v2 );
-    }
+
+    PIX_FLOAT v1;
+    PIX_FLOAT v2;
+    GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
+    GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = atan2( v1, v2 );
 }
 
 void fn_ceil( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = ceil( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = ceil( v );
 }
 
 void fn_cos( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = cos( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = cos( v );
 }
 
 void fn_cosh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-	    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = cosh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = cosh( v );
 }
 
 void fn_exp( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = exp( v );
-    }
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = exp( v );
 }
 
 void fn_exp2( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = pow( 2.0, v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = pow( 2.0, v );
 }
 
 void fn_expm1( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = expm1( v );
-    }
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = expm1( v );
 }
 
 void fn_abs( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    if( pars_num >= 1 )
+    int type = stack_types[ PIX_CHECK_SP( sp + 0 ) ];
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = type;
+    if( type == 0 )
     {
-	int type = stack_types[ sp + 0 ];
-	stack_types[ sp + ( pars_num - 1 ) ] = type;
-	if( type == 0 )
-	{
-	    PIX_INT v;
-	    GET_VAL_FROM_STACK( v, 0, PIX_INT );
-	    stack[ sp + ( pars_num - 1 ) ].i = abs( v );
-	}
-	else
-	{
-	    PIX_FLOAT v;
-	    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	    stack[ sp + ( pars_num - 1 ) ].f = fabs( v );
-	}
+        PIX_INT v;
+        GET_VAL_FROM_STACK( v, 0, PIX_INT );
+        stack[ sp2 ].i = abs( v );
+    }
+    else
+    {
+        PIX_FLOAT v;
+        GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+        stack[ sp2 ].f = fabs( v );
     }
 }
 
 void fn_floor( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = floor( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = floor( v );
 }
 
 void fn_mod( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 2 )
-    {
-	PIX_FLOAT v1, v2;
-	GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
-	GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = fmod( v1, v2 );
-    }
+
+    PIX_FLOAT v1, v2;
+    GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
+    GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = fmod( v1, v2 );
 }
 
 void fn_log( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = log( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = log( v );
 }
 
 void fn_log2( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = LOG2( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = LOG2( v );
 }
 
 void fn_log10( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = log10( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = log10( v );
 }
 
 void fn_pow( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 2 )
-    {
-	PIX_FLOAT v1, v2;
-	GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
-	GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = pow( v1, v2 );
-    }
+
+    PIX_FLOAT v1, v2;
+    GET_VAL_FROM_STACK( v1, 0, PIX_FLOAT );
+    GET_VAL_FROM_STACK( v2, 1, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = pow( v1, v2 );
 }
 
 void fn_sin( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = sin( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = sin( v );
 }
 
 void fn_sinh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = sinh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = sinh( v );
 }
 
 void fn_sqrt( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = sqrt( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = sqrt( v );
 }
 
 void fn_tan( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = tan( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = tan( v );
 }
 
 void fn_tanh( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    if( pars_num >= 1 )
-    {
-	PIX_FLOAT v;
-	GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
-	stack[ sp + ( pars_num - 1 ) ].f = tanh( v );
-    }
+
+    PIX_FLOAT v;
+    GET_VAL_FROM_STACK( v, 0, PIX_FLOAT );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 1;
+    stack[ sp2 ].f = tanh( v );
 }
 
 void fn_rand( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pseudo_random( &vm->random );
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pseudo_random( &vm->random );
 }
 
 void fn_rand_seed( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     if( pars_num >= 1 )
     {
 	PIX_INT v;
@@ -8148,12 +8431,13 @@ void fn_reinterpret_type( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
 
     if( pars_num != 3 ) return;
-    
+
     int to_float;
     int bits;
     GET_VAL_FROM_STACK( to_float, 1, int );
     GET_VAL_FROM_STACK( bits, 2, int );
-    
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( to_float )
     {
 	//INT -> X-bit FLOAT -> FLOAT
@@ -8161,17 +8445,17 @@ void fn_reinterpret_type( PIX_BUILTIN_FN_PARAMETERS )
 	if( bits > 32 )
 	{
 	    union { uint64_t i; double f; } v;
-	    v.i = stack[ sp ].i;
+	    v.i = stack[ PIX_CHECK_SP( sp ) ].i;
 	    res = v.f;
 	}
 	else
 	{
 	    union { uint32_t i; float f; } v;
-	    v.i = stack[ sp ].i;
+	    v.i = stack[ PIX_CHECK_SP( sp ) ].i;
 	    res = v.f;
 	}
-	stack[ sp + ( pars_num - 1 ) ].f = res;
-	stack_types[ sp + ( pars_num - 1 ) ] = 1;
+	stack[ sp2 ].f = res;
+	stack_types[ sp2 ] = 1;
     }
     else
     {
@@ -8180,17 +8464,17 @@ void fn_reinterpret_type( PIX_BUILTIN_FN_PARAMETERS )
 	if( bits > 32 )
 	{
 	    union { uint64_t i; double f; } v;
-	    v.f = stack[ sp ].f;
+	    v.f = stack[ PIX_CHECK_SP( sp ) ].f;
 	    res = v.i;
 	}
 	else
 	{
 	    union { uint32_t i; float f; } v;
-	    v.f = stack[ sp ].f;
+	    v.f = stack[ PIX_CHECK_SP( sp ) ].f;
 	    res = v.i;
 	}
-	stack[ sp + ( pars_num - 1 ) ].i = res;
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
+	stack[ sp2 ].i = res;
+	stack_types[ sp2 ] = 0;
     }
 }
 
@@ -8222,8 +8506,8 @@ void fn_op_cn( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( cnum, 1, PIX_CID );
 	if( pars_num >= 3 )
 	{
-	    val_type = stack_types[ sp + 2 ];
-	    val = stack[ sp + 2 ];
+	    val_type = stack_types[ PIX_CHECK_SP( sp + 2 ) ];
+	    val = stack[ PIX_CHECK_SP( sp + 2 ) ];
 	}
 
 	if( pars_num == 5 )
@@ -8247,14 +8531,15 @@ void fn_op_cn( PIX_BUILTIN_FN_PARAMETERS )
 	pix_vm_op_cn( opcode, cnum, val_type, val, x, y, xsize, ysize, &retval, &retval_type, vm );
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = retval_type;
-    stack[ sp + ( pars_num - 1 ) ] = retval;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = retval_type;
+    stack[ sp2 ] = retval;
 }
 
 void fn_op_cc( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     if( pars_num >= 3 )
     {
 	int opcode;
@@ -8266,11 +8551,11 @@ void fn_op_cc( PIX_BUILTIN_FN_PARAMETERS )
 	PIX_INT src_y = 0;
 	PIX_INT xsize = 0;
 	PIX_INT ysize = 0;
-	
+
 	GET_VAL_FROM_STACK( opcode, 0, int );
 	GET_VAL_FROM_STACK( cnum1, 1, PIX_CID );
 	GET_VAL_FROM_STACK( cnum2, 2, PIX_CID );
-	
+
 	if( pars_num == 6 )
 	{
 	    //1D:
@@ -8291,9 +8576,10 @@ void fn_op_cc( PIX_BUILTIN_FN_PARAMETERS )
 	    if( xsize <= 0 ) return;
 	    if( ysize <= 0 ) return;
 	}
-	
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_op_cc( opcode, cnum1, cnum2, dest_x, dest_y, src_x, src_y, xsize, ysize, vm );
+
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_op_cc( opcode, cnum1, cnum2, dest_x, dest_y, src_x, src_y, xsize, ysize, vm );
     }
 }
 
@@ -8318,8 +8604,8 @@ void fn_op_ccn( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( opcode, 0, int );
 	GET_VAL_FROM_STACK( cnum1, 1, PIX_CID );
 	GET_VAL_FROM_STACK( cnum2, 2, PIX_CID );
-	val_type = stack_types[ sp + 3 ];
-	val = stack[ sp + 3 ];
+	val_type = stack_types[ PIX_CHECK_SP( sp + 3 ) ];
+	val = stack[ PIX_CHECK_SP( sp + 3 ) ];
 	
 	if( pars_num == 7 )
 	{
@@ -8342,8 +8628,9 @@ void fn_op_ccn( PIX_BUILTIN_FN_PARAMETERS )
 	    if( ysize <= 0 ) return;
 	}
 	
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_op_ccn( opcode, cnum1, cnum2, val_type, val, dest_x, dest_y, src_x, src_y, xsize, ysize, vm );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_op_ccn( opcode, cnum1, cnum2, val_type, val, dest_x, dest_y, src_x, src_y, xsize, ysize, vm );
     }
 }
 
@@ -8390,8 +8677,9 @@ void fn_generator( PIX_BUILTIN_FN_PARAMETERS )
 	    if( ysize <= 0 ) return;
 	}
 	
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_generator( opcode, cnum, fval, x, y, xsize, ysize, vm );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_generator( opcode, cnum, fval, x, y, xsize, ysize, vm );
     }
 }
 
@@ -8424,8 +8712,9 @@ void fn_wavetable_generator( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( gen_step, 9, PIX_INT );
 	GET_VAL_FROM_STACK( gen_count, 10, PIX_INT );
 
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_wavetable_generator( 
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_wavetable_generator( 
     	    dest, dest_offset, dest_length, 
     	    table, 
     	    amp, amp_delta, 
@@ -8445,8 +8734,9 @@ void fn_sampler( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( pars, 0, int );
 	if( (unsigned)pars >= (unsigned)vm->c_num ) return;
 	pix_vm_container* pars_cont = vm->c[ pars ];
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_sampler( pars_cont, vm );
+	PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_sampler( pars_cont, vm );
     }
 }
 
@@ -8470,10 +8760,11 @@ void fn_envelope2p( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( v2, 2, PIX_INT );
 	if( pars_num > 3 ) { GET_VAL_FROM_STACK( offset, 3, PIX_INT ); }
 	if( pars_num > 4 ) { GET_VAL_FROM_STACK( size, 4, PIX_INT ); }
-	if( pars_num > 5 ) { dc_off1_type = stack_types[ sp + 5 ]; dc_off1 = stack[ sp + 5 ]; }
-	if( pars_num > 6 ) { dc_off2_type = stack_types[ sp + 6 ]; dc_off2 = stack[ sp + 6 ]; }
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-        stack[ sp + ( pars_num - 1 ) ].i = pix_vm_envelope2p( cnum, v1, v2, offset, size, dc_off1_type, dc_off1, dc_off2_type, dc_off2, vm );
+	if( pars_num > 5 ) { dc_off1_type = stack_types[ PIX_CHECK_SP( sp + 5 ) ]; dc_off1 = stack[ PIX_CHECK_SP( sp + 5 ) ]; }
+	if( pars_num > 6 ) { dc_off2_type = stack_types[ PIX_CHECK_SP( sp + 6 ) ]; dc_off2 = stack[ PIX_CHECK_SP( sp + 6 ) ]; }
+        PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+	stack_types[ sp2 ] = 0;
+        stack[ sp2 ].i = pix_vm_envelope2p( cnum, v1, v2, offset, size, dc_off1_type, dc_off1, dc_off2_type, dc_off2, vm );
     }
 }
 
@@ -8502,8 +8793,8 @@ void fn_gradient( PIX_BUILTIN_FN_PARAMETERS )
 
 	for( int i = 0; i < 4; i++ )
 	{
-	    v[ i ] = stack[ sp + i + 1 ];
-	    v_types[ i ] = stack_types[ sp + i + 1 ];
+	    v[ i ] = stack[ PIX_CHECK_SP( sp + i + 1 ) ];
+	    v_types[ i ] = stack_types[ PIX_CHECK_SP( sp + i + 1 ) ];
 	    if( cont->type < PIX_CONTAINER_TYPE_FLOAT32 )
 	    {
 		if( v_types[ i ] == 1 )
@@ -8702,8 +8993,9 @@ void fn_gradient( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_fft( PIX_BUILTIN_FN_PARAMETERS )
@@ -8750,8 +9042,9 @@ void fn_new_filter( PIX_BUILTIN_FN_PARAMETERS )
 
     if( pars_num >= 1 ) GET_VAL_FROM_STACK( flags, 0, int );
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_new_filter( flags, vm );
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = pix_vm_new_filter( flags, vm );
 }
 
 void fn_remove_filter( PIX_BUILTIN_FN_PARAMETERS )
@@ -8770,6 +9063,7 @@ void fn_init_filter( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 2 )
     {
 	PIX_CID f;
@@ -8788,13 +9082,13 @@ void fn_init_filter( PIX_BUILTIN_FN_PARAMETERS )
 	    break;
 	}
 
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_init_filter( f, a, b, rshift, flags, vm );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = pix_vm_init_filter( f, a, b, rshift, flags, vm );
     }
     else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -8817,6 +9111,7 @@ void fn_apply_filter( PIX_BUILTIN_FN_PARAMETERS )
     // output[ n ] = ( a[ 0 ] * input[ n ] + a[ 1 ] * input[ n - 1 ] + ... + a[ a_count - 1 ] * input[ n - a_count - 1 ]
     //                                     + b[ 0 ] * output[ n - 1 ] + ... + b[ b_count - 1 ] * output[ n - b_count - 1 ] ) >> rshift;
 
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 3 )
     {
 	PIX_CID f; //filter (created with new_filter());
@@ -8837,13 +9132,13 @@ void fn_apply_filter( PIX_BUILTIN_FN_PARAMETERS )
 	    break;
 	}
 
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = pix_vm_apply_filter( f, output, input, flags, offset, size, vm );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = pix_vm_apply_filter( f, output, input, flags, offset, size, vm );
     }
     else
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -8998,8 +9293,9 @@ void fn_replace_values( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_copy_and_resize( PIX_BUILTIN_FN_PARAMETERS )
@@ -9057,8 +9353,9 @@ void fn_copy_and_resize( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_conv_filter( PIX_BUILTIN_FN_PARAMETERS )
@@ -9094,8 +9391,8 @@ void fn_conv_filter( PIX_BUILTIN_FN_PARAMETERS )
 	int pnum = 3;
 	while( 1 )
 	{
-	    if( pars_num > pnum ) { pars.div = stack[ sp + pnum ]; pars.div_type = stack_types[ sp + pnum ]; } else break; pnum++;
-    	    if( pars_num > pnum ) { pars.offset = stack[ sp + pnum ]; pars.offset_type = stack_types[ sp + pnum ]; } else break; pnum++;
+	    if( pars_num > pnum ) { pars.div = stack[ PIX_CHECK_SP( sp + pnum ) ]; pars.div_type = stack_types[ PIX_CHECK_SP( sp + pnum ) ]; } else break; pnum++;
+    	    if( pars_num > pnum ) { pars.offset = stack[ PIX_CHECK_SP( sp + pnum ) ]; pars.offset_type = stack_types[ PIX_CHECK_SP( sp + pnum ) ]; } else break; pnum++;
 	    if( pars_num > pnum ) { GET_VAL_FROM_STACK( pars.flags, pnum, uint ); } else break; pnum++;
 	    if( pars_num > pnum ) { GET_VAL_FROM_STACK( pars.kernel_xcenter, pnum, int ); } else break; pnum++;
 	    if( pars_num > pnum ) { GET_VAL_FROM_STACK( pars.kernel_ycenter, pnum, int ); } else break; pnum++;
@@ -9115,8 +9412,9 @@ void fn_conv_filter( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -9167,8 +9465,9 @@ void fn_file_dialog( PIX_BUILTIN_FN_PARAMETERS )
     }
 
     //Execute:
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
     if( err == 0 )
     {
 	pix_sundog_filedialog* req = vm->sd_filedialog;
@@ -9203,7 +9502,7 @@ void fn_file_dialog( PIX_BUILTIN_FN_PARAMETERS )
 		    if( !vm->ready ) break;
 		    stime_sleep( 100 );
 		}
-		stack[ sp + ( pars_num - 1 ) ].i = pix_vm_make_container_from_cstring( (const char*)req->result, vm );
+		stack[ sp2 ].i = pix_vm_make_container_from_cstring( (const char*)req->result, vm );
 	    }
 	}
 	if( name_ ) smem_free( name );
@@ -9216,9 +9515,10 @@ void fn_file_dialog( PIX_BUILTIN_FN_PARAMETERS )
 void fn_prefs_dialog( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = 0;
 
     sundog_event evt;
     smem_clear_struct( evt );
@@ -9255,8 +9555,9 @@ void fn_textinput_dialog( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
 
     pix_sundog_textinput* req = vm->sd_textinput;
     if( req == NULL )
@@ -9284,7 +9585,7 @@ void fn_textinput_dialog( PIX_BUILTIN_FN_PARAMETERS )
     		if( !vm->ready ) break;
     		stime_sleep( 100 );
 	    }
-	    stack[ sp + ( pars_num - 1 ) ].i = pix_vm_make_container_from_cstring( (const char*)req->result, vm );
+	    stack[ sp2 ].i = pix_vm_make_container_from_cstring( (const char*)req->result, vm );
 	    smem_free( (void*)req->result );
 	}
     }
@@ -9320,40 +9621,44 @@ void fn_system( PIX_BUILTIN_FN_PARAMETERS )
     }
     
     //Execute:
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( err == 0 )
     {
 	bool need_to_free = 0;
 	char* ts = pix_vm_make_cstring_from_container( name, &need_to_free, vm );
 
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)system( ts );
-	
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)system( ts );
+
 	if( need_to_free ) smem_free( ts );
     }
     else 
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)system( 0 );
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = (PIX_INT)system( NULL );
     }
 #else
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = 0;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = 0;
 #endif
 }
 
 void fn_argc( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = (PIX_INT)vm->wm->sd->argc;
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = (PIX_INT)vm->wm->sd->argc;
 }
 
 void fn_argv( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    
+
     bool err = 1;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
     if( pars_num >= 1 )
     {
 	PIX_INT arg_num;
@@ -9366,16 +9671,16 @@ void fn_argv( PIX_BUILTIN_FN_PARAMETERS )
 	    {
 		pix_vm_container* arg_cont = vm->c[ arg ];
 		smem_copy( arg_cont->data, vm->wm->sd->argv[ arg_num ], arg_len );
-		stack_types[ sp + ( pars_num - 1 ) ] = 0;
-		stack[ sp + ( pars_num - 1 ) ].i = arg;
+		stack_types[ sp2 ] = 0;
+		stack[ sp2 ].i = arg;
 		err = 0;
 	    }
 	}
     }
     if( err )
     {
-	stack_types[ sp + ( pars_num - 1 ) ] = 0;
-	stack[ sp + ( pars_num - 1 ) ].i = -1;
+	stack_types[ sp2 ] = 0;
+	stack[ sp2 ].i = -1;
     }
 }
 
@@ -9429,7 +9734,7 @@ void fn_system_copy_OR_open_url( PIX_BUILTIN_FN_PARAMETERS )
     FN_HEADER;
     
     PIX_CID name;
-    pix_vm_container* name_cont;
+    //pix_vm_container* name_cont;
     
     bool err = 0;
     
@@ -9440,7 +9745,7 @@ void fn_system_copy_OR_open_url( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( name, 0, PIX_CID );
 	if( (unsigned)name >= (unsigned)vm->c_num ) { err = 1; break; }
 	if( vm->c[ name ] == 0 ) { err = 1; break; }
-	name_cont = vm->c[ name ];
+	//name_cont = vm->c[ name ];
 	break;
     }
     
@@ -9474,10 +9779,11 @@ void fn_system_paste( PIX_BUILTIN_FN_PARAMETERS )
     int type = 0;
 
     if( pars_num > 0 ) { GET_VAL_FROM_STACK( type, 0, int ); }
-    
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
-    
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
+
     char* fname = sclipboard_paste( vm->wm->sd, type, 0 );
     if( fname )
     {
@@ -9486,8 +9792,8 @@ void fn_system_paste( PIX_BUILTIN_FN_PARAMETERS )
         {
             pix_vm_container* name_cont = vm->c[ name ];
             smem_copy( name_cont->data, fname, smem_strlen( fname ) );
-            stack_types[ sp + ( pars_num - 1 ) ] = 0;
-            stack[ sp + ( pars_num - 1 ) ].i = name;
+            stack_types[ sp2 ] = 0;
+            stack[ sp2 ].i = name;
         }
         smem_free( fname );
     }
@@ -9525,8 +9831,9 @@ void fn_send_file_to( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_export_import_file( PIX_BUILTIN_FN_PARAMETERS )
@@ -9553,8 +9860,9 @@ void fn_export_import_file( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_set_audio_play_status( PIX_BUILTIN_FN_PARAMETERS )
@@ -9597,8 +9905,9 @@ void fn_get_audio_event( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
 #endif
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_openclose_app_state( PIX_BUILTIN_FN_PARAMETERS )
@@ -9687,8 +9996,9 @@ void fn_openclose_app_state( PIX_BUILTIN_FN_PARAMETERS )
 
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_wm_video_capture_start_OR_stop( PIX_BUILTIN_FN_PARAMETERS )
@@ -9734,17 +10044,19 @@ void fn_wm_video_capture_start_OR_stop( PIX_BUILTIN_FN_PARAMETERS )
     	}
     }
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_wm_video_capture_get_ext( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = -1;
-    
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = -1;
+
     const char* ext = video_capture_get_file_ext( vm->wm );
     if( ext )
     {
@@ -9753,8 +10065,8 @@ void fn_wm_video_capture_get_ext( PIX_BUILTIN_FN_PARAMETERS )
     	{
     	    pix_vm_container* str_cont = vm->c[ str ];
     	    smem_copy( str_cont->data, ext, smem_strlen( ext ) );
-    	    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    	    stack[ sp + ( pars_num - 1 ) ].i = str;
+    	    stack_types[ sp2 ] = 0;
+    	    stack[ sp2 ].i = str;
     	}
     }
 }
@@ -9783,8 +10095,9 @@ void fn_wm_video_capture_encode( PIX_BUILTIN_FN_PARAMETERS )
 	break;
     }
     
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 //
@@ -9804,8 +10117,9 @@ void fn_sv_new( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_new( sample_rate, flags, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_remove( PIX_BUILTIN_FN_PARAMETERS )
@@ -9819,8 +10133,9 @@ void fn_sv_remove( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_remove( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_sample_rate( PIX_BUILTIN_FN_PARAMETERS )
@@ -9834,8 +10149,9 @@ void fn_sv_get_sample_rate( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_sample_rate( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_render( PIX_BUILTIN_FN_PARAMETERS )
@@ -9909,8 +10225,9 @@ void fn_sv_render( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_lock_unlock( PIX_BUILTIN_FN_PARAMETERS )
@@ -9929,8 +10246,9 @@ void fn_sv_lock_unlock( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_stream_control( sv_id, cmd, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_load_fload( PIX_BUILTIN_FN_PARAMETERS )
@@ -9977,8 +10295,9 @@ void fn_sv_load_fload( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_save_fsave( PIX_BUILTIN_FN_PARAMETERS )
@@ -10025,8 +10344,9 @@ void fn_sv_save_fsave( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_play( PIX_BUILTIN_FN_PARAMETERS )
@@ -10043,8 +10363,9 @@ void fn_sv_play( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_play( sv_id, pos, jump_to_pos, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_stop( PIX_BUILTIN_FN_PARAMETERS )
@@ -10058,8 +10379,9 @@ void fn_sv_stop( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_stop( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_pause( PIX_BUILTIN_FN_PARAMETERS )
@@ -10073,8 +10395,9 @@ void fn_sv_pause( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_pause( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_resume( PIX_BUILTIN_FN_PARAMETERS )
@@ -10088,8 +10411,9 @@ void fn_sv_resume( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_resume( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_sync_resume( PIX_BUILTIN_FN_PARAMETERS )
@@ -10103,8 +10427,9 @@ void fn_sv_sync_resume( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_sync_resume( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_set_autostop( PIX_BUILTIN_FN_PARAMETERS )
@@ -10124,8 +10449,9 @@ void fn_sv_set_autostop( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_autostop( PIX_BUILTIN_FN_PARAMETERS )
@@ -10139,8 +10465,9 @@ void fn_sv_get_autostop( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_autostop( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_status( PIX_BUILTIN_FN_PARAMETERS )
@@ -10154,8 +10481,9 @@ void fn_sv_get_status( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_status( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_rewind( PIX_BUILTIN_FN_PARAMETERS )
@@ -10175,8 +10503,9 @@ void fn_sv_rewind( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_volume( PIX_BUILTIN_FN_PARAMETERS )
@@ -10192,8 +10521,9 @@ void fn_sv_volume( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_volume( sv_id, vol, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_set_event_t( PIX_BUILTIN_FN_PARAMETERS )
@@ -10215,8 +10545,9 @@ void fn_sv_set_event_t( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_send_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -10246,8 +10577,9 @@ void fn_sv_send_event( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_current_line( PIX_BUILTIN_FN_PARAMETERS )
@@ -10264,8 +10596,9 @@ void fn_sv_get_current_line( PIX_BUILTIN_FN_PARAMETERS )
         rv = pix_vm_sv_get_current_line( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_current_signal_level( PIX_BUILTIN_FN_PARAMETERS )
@@ -10281,14 +10614,15 @@ void fn_sv_get_current_signal_level( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_current_signal_level( sv_id, ch, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_name( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
-    PIX_INT rv = -1;
+    PIX_CID rv = -1;
 
 #ifndef PIX_NOSUNVOX
     int sv_id = -1;
@@ -10296,8 +10630,33 @@ void fn_sv_get_name( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_make_container_from_cstring( pix_vm_sv_get_name( sv_id, vm ), vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_name( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    int sv_id = -1;
+    PIX_CID name_cid = -1;
+    if( pars_num >= 2 )
+    {
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( name_cid, 1, PIX_CID );
+	bool name_str_ = false;
+        char* name_str = pix_vm_make_cstring_from_container( name_cid, &name_str_, vm );
+        rv = pix_vm_sv_set_name( sv_id, name_str, vm );
+        if( name_str_ ) smem_free( name_str );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_bpm( PIX_BUILTIN_FN_PARAMETERS )
@@ -10314,8 +10673,9 @@ void fn_sv_get_bpm( PIX_BUILTIN_FN_PARAMETERS )
 	rv = pix_vm_sv_get_proj_par( sv_id, 1, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_len( PIX_BUILTIN_FN_PARAMETERS )
@@ -10332,8 +10692,9 @@ void fn_sv_get_len( PIX_BUILTIN_FN_PARAMETERS )
 	rv = pix_vm_sv_get_proj_len( sv_id, 1, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_time_map( PIX_BUILTIN_FN_PARAMETERS )
@@ -10362,8 +10723,9 @@ void fn_sv_get_time_map( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_new_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10396,8 +10758,9 @@ void fn_sv_new_module( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_remove_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10417,8 +10780,9 @@ void fn_sv_remove_module( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_connect_disconnect_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10440,8 +10804,9 @@ void fn_sv_connect_disconnect_module( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_fload_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10494,11 +10859,12 @@ void fn_sv_fload_module( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
-void fn_sv_sampler_fload( PIX_BUILTIN_FN_PARAMETERS )
+void fn_sv_mod_fload( PIX_BUILTIN_FN_PARAMETERS )
 {
     FN_HEADER;
     int rv = -1;
@@ -10514,7 +10880,18 @@ void fn_sv_sampler_fload( PIX_BUILTIN_FN_PARAMETERS )
 	GET_VAL_FROM_STACK( sv_id, 0, int );
 	GET_VAL_FROM_STACK( mod, 1, int );
 	if( pars_num >= 4 ) GET_VAL_FROM_STACK( slot, 3, int );
-	if( fn_num == FN_SV_SAMPLER_LOAD )
+	int modtype = 0;
+	bool with_filename = 0;
+	switch( fn_num )
+	{
+	    case FN_SV_SAMPLER_LOAD: modtype = 0; with_filename = 1; break;
+	    case FN_SV_SAMPLER_FLOAD: modtype = 0; break;
+	    case FN_SV_METAMODULE_LOAD: modtype = 1; with_filename = 1; break;
+	    case FN_SV_METAMODULE_FLOAD: modtype = 1; break;
+	    case FN_SV_VPLAYER_LOAD: modtype = 2; with_filename = 1; break;
+	    case FN_SV_VPLAYER_FLOAD: modtype = 2; break;
+	};
+	if( with_filename )
 	{
 	    PIX_CID name;
 	    GET_VAL_FROM_STACK( name, 2, PIX_CID );
@@ -10539,15 +10916,16 @@ void fn_sv_sampler_fload( PIX_BUILTIN_FN_PARAMETERS )
 	}
 	if( f )
 	{
-	    rv = pix_vm_sv_sampler_fload( sv_id, mod, slot, f, vm );
+	    rv = pix_vm_sv_mod_fload( sv_id, modtype, mod, slot, f, vm );
 	    if( close_f ) sfs_close( f );
 	}
 	break;
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_number_of_modules( PIX_BUILTIN_FN_PARAMETERS )
@@ -10561,8 +10939,9 @@ void fn_sv_get_number_of_modules( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_number_of_modules( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_selected_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10578,8 +10957,9 @@ void fn_sv_selected_module( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_selected_module( sv_id, mod, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_find_module( PIX_BUILTIN_FN_PARAMETERS )
@@ -10607,8 +10987,9 @@ void fn_sv_find_module( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_flags( PIX_BUILTIN_FN_PARAMETERS )
@@ -10628,8 +11009,9 @@ void fn_sv_get_module_flags( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_inputs( PIX_BUILTIN_FN_PARAMETERS )
@@ -10655,8 +11037,31 @@ void fn_sv_get_module_inputs( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_get_module_type( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_CID rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 2 )
+    {
+	int sv_id;
+	int mod;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	rv = pix_vm_make_container_from_cstring( pix_vm_sv_get_module_type( sv_id, mod, vm ), vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_name( PIX_BUILTIN_FN_PARAMETERS )
@@ -10676,8 +11081,36 @@ void fn_sv_get_module_name( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_name( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 3 )
+    {
+	int sv_id;
+	int mod;
+	PIX_CID name_cid;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( name_cid, 2, PIX_CID );
+	bool name_str_ = false;
+        char* name_str = pix_vm_make_cstring_from_container( name_cid, &name_str_, vm );
+	rv = pix_vm_sv_set_module_name( sv_id, mod, name_str, vm );
+        if( name_str_ ) smem_free( name_str );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_xy( PIX_BUILTIN_FN_PARAMETERS )
@@ -10697,8 +11130,34 @@ void fn_sv_get_module_xy( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_xy( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 4 )
+    {
+	int sv_id;
+	int mod;
+	int x, y;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( x, 2, int );
+	GET_VAL_FROM_STACK( y, 3, int );
+	rv = pix_vm_sv_set_module_xy( sv_id, mod, x, y, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_color( PIX_BUILTIN_FN_PARAMETERS )
@@ -10718,8 +11177,33 @@ void fn_sv_get_module_color( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_color( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 3 )
+    {
+	int sv_id;
+	int mod;
+	COLOR color;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( color, 2, COLOR );
+	rv = pix_vm_sv_set_module_color( sv_id, mod, color, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_finetune( PIX_BUILTIN_FN_PARAMETERS )
@@ -10739,8 +11223,57 @@ void fn_sv_get_module_finetune( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_finetune( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 3 )
+    {
+	int sv_id;
+	int mod;
+	int finetune;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( finetune, 2, int );
+	rv = pix_vm_sv_set_module_finetune( sv_id, mod, finetune, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_relnote( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 3 )
+    {
+	int sv_id;
+	int mod;
+	int relative_note;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( relative_note, 2, int );
+	rv = pix_vm_sv_set_module_relnote( sv_id, mod, relative_note, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_scope( PIX_BUILTIN_FN_PARAMETERS )
@@ -10770,8 +11303,9 @@ void fn_sv_get_module_scope( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_module_curve( PIX_BUILTIN_FN_PARAMETERS )
@@ -10803,8 +11337,9 @@ void fn_sv_module_curve( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_ctl_cnt( PIX_BUILTIN_FN_PARAMETERS )
@@ -10824,8 +11359,9 @@ void fn_sv_get_module_ctl_cnt( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_ctl_name( PIX_BUILTIN_FN_PARAMETERS )
@@ -10847,8 +11383,9 @@ void fn_sv_get_module_ctl_name( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_module_ctl_value( PIX_BUILTIN_FN_PARAMETERS )
@@ -10872,8 +11409,120 @@ void fn_sv_get_module_ctl_value( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_module_ctl_value( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = 0;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 4 )
+    {
+	int sv_id;
+	int mod;
+	int ctl;
+	int val;
+	int scaled = 0;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( ctl, 2, int );
+	GET_VAL_FROM_STACK( val, 3, int );
+	if( pars_num >= 5 ) GET_VAL_FROM_STACK( scaled, 4, int );
+	rv = pix_vm_sv_set_module_ctl_value( sv_id, mod, ctl, val, scaled, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_get_module_ctl_par( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = 0;
+
+#ifndef PIX_NOSUNVOX
+    while( pars_num >= 3 )
+    {
+	int sv_id;
+	int mod;
+	int ctl;
+	int scaled = 0;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( mod, 1, int );
+	GET_VAL_FROM_STACK( ctl, 2, int );
+	if( pars_num >= 4 ) GET_VAL_FROM_STACK( scaled, 3, int );
+	rv = pix_vm_sv_get_module_ctl_par( sv_id, mod, ctl, scaled, fn_num - FN_SV_GET_MODULE_CTL_MIN, vm );
+	break;
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_new_pat( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    if( pars_num >= 4 )
+    {
+        int sv_id;
+        int clone;
+        int x, y;
+        int tracks = 16;
+        int lines = 64;
+        static int icon_seed_cnt = 0;
+        int icon_seed = icon_seed_cnt++;
+        PIX_CID name_cid;
+        GET_VAL_FROM_STACK( sv_id, 0, int );
+        GET_VAL_FROM_STACK( clone, 1, int );
+        GET_VAL_FROM_STACK( x, 2, int );
+        GET_VAL_FROM_STACK( y, 3, int );
+        if( pars_num >= 5 ) GET_VAL_FROM_STACK( tracks, 4, int );
+        if( pars_num >= 6 ) GET_VAL_FROM_STACK( lines, 5, int );
+        if( pars_num >= 7 ) GET_VAL_FROM_STACK( icon_seed, 6, int );
+        if( pars_num >= 8 ) GET_VAL_FROM_STACK( name_cid, 7, PIX_CID );
+        bool name_str_ = false;
+        char* name_str = pix_vm_make_cstring_from_container( name_cid, &name_str_, vm );
+        rv = pix_vm_sv_new_pat( sv_id, clone, x, y, tracks, lines, icon_seed, name_str, vm );
+        if( name_str_ ) smem_free( name_str );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_remove_pat( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    if( pars_num >= 2 )
+    {
+	int sv_id = -1;
+	int pat = 0;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( pat, 1, int );
+	rv = pix_vm_sv_remove_pat( sv_id, pat, vm );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_number_of_pats( PIX_BUILTIN_FN_PARAMETERS )
@@ -10887,8 +11536,9 @@ void fn_sv_get_number_of_pats( PIX_BUILTIN_FN_PARAMETERS )
     rv = pix_vm_sv_get_number_of_pats( sv_id, vm );
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_find_pattern( PIX_BUILTIN_FN_PARAMETERS )
@@ -10916,8 +11566,9 @@ void fn_sv_find_pattern( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_pat( PIX_BUILTIN_FN_PARAMETERS )
@@ -10954,8 +11605,85 @@ void fn_sv_get_pat( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_pat_xy( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    if( pars_num >= 4 )
+    {
+	int sv_id = -1;
+	int pat = 0;
+	int x = 0;
+	int y = 0;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( pat, 1, int );
+	GET_VAL_FROM_STACK( x, 2, int );
+	GET_VAL_FROM_STACK( y, 3, int );
+	rv = pix_vm_sv_set_pat_xy( sv_id, pat, x, y, vm );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_pat_size( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    if( pars_num >= 3 )
+    {
+	int sv_id = -1;
+	int pat = 0;
+	int tracks = -1;
+	int lines = -1;
+	GET_VAL_FROM_STACK( sv_id, 0, int );
+	GET_VAL_FROM_STACK( pat, 1, int );
+	GET_VAL_FROM_STACK( tracks, 2, int );
+	if( pars_num >= 4 ) GET_VAL_FROM_STACK( lines, 3, int );
+	rv = pix_vm_sv_set_pat_size( sv_id, pat, tracks, lines, vm );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
+}
+
+void fn_sv_set_pat_name( PIX_BUILTIN_FN_PARAMETERS )
+{
+    FN_HEADER;
+    PIX_INT rv = -1;
+
+#ifndef PIX_NOSUNVOX
+    if( pars_num >= 3 )
+    {
+        int sv_id;
+        int pat;
+        PIX_CID name_cid;
+        GET_VAL_FROM_STACK( sv_id, 0, int );
+        GET_VAL_FROM_STACK( pat, 1, int );
+        GET_VAL_FROM_STACK( name_cid, 2, PIX_CID );
+        bool name_str_ = false;
+        char* name_str = pix_vm_make_cstring_from_container( name_cid, &name_str_, vm );
+        rv = pix_vm_sv_set_pat_name( sv_id, pat, name_str, vm );
+        if( name_str_ ) smem_free( name_str );
+    }
+#endif
+
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_set_pat_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -11002,8 +11730,9 @@ void fn_sv_set_pat_event( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_get_pat_event( PIX_BUILTIN_FN_PARAMETERS )
@@ -11044,8 +11773,9 @@ void fn_sv_get_pat_event( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }
 
 void fn_sv_pat_mute( PIX_BUILTIN_FN_PARAMETERS )
@@ -11066,6 +11796,7 @@ void fn_sv_pat_mute( PIX_BUILTIN_FN_PARAMETERS )
     }
 #endif
 
-    stack_types[ sp + ( pars_num - 1 ) ] = 0;
-    stack[ sp + ( pars_num - 1 ) ].i = rv;
+    PIX_SP sp2 = PIX_CHECK_SP( sp + ( pars_num - 1 ) );
+    stack_types[ sp2 ] = 0;
+    stack[ sp2 ].i = rv;
 }

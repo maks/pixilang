@@ -1,7 +1,7 @@
 /*
     wm_hnd_webserver.cpp - Web Server with File Browser
     This file is part of the SunDog engine.
-    Copyright (C) 2009 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2009 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -11,6 +11,10 @@
 #include "net/net.h"
 
 #ifdef WEBSERVER
+
+#ifdef OS_ANDROID
+    #include "main/android/sundog_bridge.h"
+#endif
 
 #include <sys/socket.h> //socket definitions
 #include <sys/types.h> //socket types
@@ -102,8 +106,8 @@ static const char* webserv_get_string( int str_id )
 		case STR_WEBSERV_STATUS: str = "Статус:"; break;
 		case STR_WEBSERV_STATUS_STARTING: str = "Запуск вебсервера ..."; break;
 		case STR_WEBSERV_STATUS_WORKING: str = "Активен ..."; break;
-		case STR_WEBSERV_HEADER: str = HTMLBEGIN "<title>Хранилище файлов</title></head><body>\r\n"; break;
-    		case STR_WEBSERV_TITLE: str = "<h1>Хранилище файлов программы: "; break;
+		case STR_WEBSERV_HEADER: str = HTMLBEGIN "<title>Хранилище файлов приложения</title></head><body>\r\n"; break;
+    		case STR_WEBSERV_TITLE: str = "Хранилище файлов приложения: "; break;
     		case STR_WEBSERV_REMOVE: str = "<center><h1>Удалить \""; break;
 		case STR_WEBSERV_REMOVE2: str = "\"><font color=\"red\">(удалить)</font></a>"; break;
 		case STR_WEBSERV_YES: str = "\"><font color=\"red\">ДА</font></a> "; break;
@@ -131,8 +135,8 @@ static const char* webserv_get_string( int str_id )
 	    case STR_WEBSERV_STATUS: str = "Status:"; break;
 	    case STR_WEBSERV_STATUS_STARTING: str = "Starting webserver ..."; break;
 	    case STR_WEBSERV_STATUS_WORKING: str = "Working ..."; break;
-    	    case STR_WEBSERV_HEADER: str = HTMLBEGIN "<title>File storage</title></head><body>\r\n"; break;
-    	    case STR_WEBSERV_TITLE: str = "<h1>File storage: "; break;
+    	    case STR_WEBSERV_HEADER: str = HTMLBEGIN "<title>App File Storage</title></head><body>\r\n"; break;
+    	    case STR_WEBSERV_TITLE: str = "App File Storage: "; break;
 	    case STR_WEBSERV_REMOVE: str = "<center><h1>Remove \""; break;
 	    case STR_WEBSERV_REMOVE2: str = "\"><font color=\"red\">(remove)</font></a>"; break;
 	    case STR_WEBSERV_YES: str = "\"><font color=\"red\">YES</font></a> "; break;
@@ -959,6 +963,7 @@ static int service_request( int conn )
 	    
 	    slist_sort( &ld );
 
+	    write_line( conn, "<h1>", 0 );
 	    write_line( conn, webserv_get_string( STR_WEBSERV_HEADER ), 0 );
 	    write_line( conn, webserv_get_string( STR_WEBSERV_TITLE ), 0 );
 	    write_line( conn, reqinfo.resource_name, 0 );
@@ -1242,7 +1247,7 @@ static int webserver_handler( sundog_event* evt, window_manager* wm )
 		
 		data->host_addr = NULL;
 		data->addr_list = NULL;
-		snet_get_host_info( &data->host_addr, &data->addr_list );
+		snet_get_host_info( wm->sd, &data->host_addr, &data->addr_list );
 		signal( SIGPIPE, SIG_IGN ); //Ignore SIGPIPE (write to the socket, when the receiver is closed)
 		
 		g_webserver_root[ 0 ] = 0;
@@ -1327,7 +1332,7 @@ static int webserver_handler( sundog_event* evt, window_manager* wm )
 		    draw_string_wordwrap( msg_str, x, y, win->xsize - wm->interelement_space * 2, 0, &txt_ysize, false, wm );
 		    y += txt_ysize;
 		
-		    //Draw address:
+		    //Draw the address:
 	    	    {
 	    		wm->cur_font_scale = scale;
 			wm->cur_font_color = color_red;
@@ -1402,7 +1407,11 @@ static int webserver_handler( sundog_event* evt, window_manager* wm )
 		    }
 		    if( timeout_counter <= 0 )
 		    {
+#ifndef OS_ANDROID
     			pthread_cancel( g_webserver_pth );
+#else
+			slog( "Can't close the webserver thread\n" );
+#endif
 		    }
 		}
 	

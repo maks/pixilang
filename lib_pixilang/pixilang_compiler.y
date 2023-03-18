@@ -6,7 +6,7 @@
 /*
     pixilang_compiler.y
     This file is part of the Pixilang.
-    Copyright (C) 2006 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2006 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -32,15 +32,17 @@
     #define DPRINT( fmt, ARGS... ) {}
 #endif
 
-#define ERROR( fmt, ARGS... ) slog( "ERROR in %s: " fmt "\n", __FUNCTION__, ## ARGS )
-#define SHOW_ERROR( fmt, ARGS... ) \
-    { \
-	char* ts = (char*)smem_new( smem_strlen( pcomp->src_name ) + 2048 ); \
-	slog( "ERROR (line %d) in %s: " fmt "\n", pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
-	sprintf( ts, "ERROR (line %d)\nin %s:\n" fmt, pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
-	dialog( 0, ts, wm_get_string( STR_WM_CLOSE ), pcomp->vm->wm ); \
-	smem_free( ts ); \
-    }
+#define ERROR( fmt, ARGS... ) slog( "ERROR in %s() (line %d): " fmt "\n", __FUNCTION__, __LINE__, ## ARGS )
+#define PCOMP_ERROR( fmt, ARGS... ) \
+{ \
+    int ts_len = smem_strlen( pcomp->src_name ) + 2048; \
+    char* ts = (char*)smem_new( ts_len ); \
+    slog( "ERROR (line %d) in %s: " fmt "\n", pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
+    snprintf( ts, ts_len, "ERROR (line %d)\nin %s:\n" fmt, pcomp->src_line + 1, pcomp->src_name, ## ARGS ); \
+    if( pcomp->vm->compiler_errors ) smem_strcat_resize( pcomp->vm->compiler_errors, "\n" ); \
+    smem_strcat_resize( pcomp->vm->compiler_errors, ts ); \
+    smem_free( ts ); \
+}
 
 #define NUMERIC( val ) ( val >= '0' && val <= '9' )
 #define ABC( val ) ( ( val >= 'a' && val <= 'z' ) || ( val >= 'A' && val <= 'Z' ) || ( (unsigned)val >= 128 && val != -1 ) )
@@ -188,7 +190,7 @@ struct pix_compiler
     
     pix_symtab sym; //Global symbol table
     pix_lsymtab* lsym; //Local symbol tables
-    uint lsym_num; //Number of current local symbol table
+    int lsym_num; //Number of current local symbol table
     char temp_sym_name[ 256 + 1 ];
     
     char* var_flags;
@@ -241,17 +243,14 @@ static void create_empty_lsym_table( pix_compiler* pcomp )
 	pcomp->lsym = (pix_lsymtab*)smem_resize( pcomp->lsym, ( pcomp->lsym_num + 8 ) * sizeof( pix_lsymtab ) );
     pix_lsymtab* l = &pcomp->lsym[ pcomp->lsym_num ];
     smem_clear( l, sizeof( pix_lsymtab ) );
-    l->lvar_flags = (char*)smem_new( 8 );
-    l->lvar_names = (char**)smem_new( 8 * sizeof( char* ) );
-    smem_zero( l->lvar_flags );
-    smem_zero( l->lvar_names );
+    l->lvar_flags = (char*)smem_znew( 8 );
+    l->lvar_names = (char**)smem_znew( 8 * sizeof( char* ) );
     l->lvar_flags_size = 8;
 }
 
 static lnode* remove_lsym_table( pix_compiler* pcomp, lnode* statlist )
 {
-    lnode* new_tree;
-    
+    lnode* new_tree = statlist;
     int lvars_num = pcomp->lsym[ pcomp->lsym_num ].lvars_num;
     if( lvars_num )
     {
@@ -260,40 +259,40 @@ static lnode* remove_lsym_table( pix_compiler* pcomp, lnode* statlist )
 	new_tree->n[ 0 ]->val.i = -lvars_num;
 	new_tree->n[ 1 ] = statlist;
     }
-    else 
-    {
-	new_tree = statlist;
-    }
 
     pix_lsymtab* l = &pcomp->lsym[ pcomp->lsym_num ];
+    bool err = false;
     for( size_t n = 0; n < l->lvar_flags_size; n++ )
     {
 	if( l->lvar_names[ n ] )
 	{
 	    if( ( l->lvar_flags[ n ] & VAR_FLAG_INITIALIZED ) == 0 )
 	    {
-		SHOW_ERROR( "local variable %s is not initialized", l->lvar_names[ n ] );
-		remove_tree( new_tree );
-		new_tree = 0;
-		break;
+		PCOMP_ERROR( "local variable %s is not initialized", l->lvar_names[ n ] );
+		err = true;
 	    }
 	    smem_free( l->lvar_names[ n ] );
 	}
     }
+    if( err )
+    {
+	remove_tree( new_tree );
+	new_tree = NULL;
+    }
     smem_free( l->lvar_flags );
     smem_free( l->lvar_names );
-    l->lvar_flags = 0;
-    l->lvar_names = 0;
+    l->lvar_flags = NULL;
+    l->lvar_names = NULL;
     if( l->lsym )
     {
 	pix_symtab_deinit( l->lsym );
 	smem_free( l->lsym );
-	l->lsym = 0;
+	l->lsym = NULL;
 	l->lvars_num = 0;
 	l->pars_num = 0;
     }
     pcomp->lsym_num--;
-    
+
     return new_tree;
 }
 
@@ -385,12 +384,12 @@ stat
 	    DPRINT( "VAR(%d) :\n", (int)$1.i ); 
 	    if( pcomp->var_flags[ $1.i ] & VAR_FLAG_LABEL )
 	    {
-		SHOW_ERROR( "label %s is already defined", pix_vm_get_variable_name( pcomp->vm, $1.i ) );
+		PCOMP_ERROR( "label %s is already defined", pix_vm_get_variable_name( pcomp->vm, $1.i ) );
                 YYERROR;
 	    }
 	    if( pcomp->var_flags[ $1.i ] & VAR_FLAG_FUNCTION )
 	    {
-		SHOW_ERROR( "label %s is already defined as function", pix_vm_get_variable_name( pcomp->vm, $1.i ) );
+		PCOMP_ERROR( "label %s is already defined as function", pix_vm_get_variable_name( pcomp->vm, $1.i ) );
                 YYERROR;
 	    }
 	    $$.n = node( lnode_label, 0 );
@@ -601,14 +600,14 @@ stat
         		$$.n->val.p = pcomp->while_stack[ pcomp->while_stack_ptr - $1.i ]->n[ LNODE_WHILE_JMP_TO_START ];
         	    else
         	    {
-            		SHOW_ERROR( "wrong level number %d for 'break' operator", (int)$1.i );
+            		PCOMP_ERROR( "wrong level number %d for 'break' operator", (int)$1.i );
             		YYERROR;
         	    }
         	}
     	    }
     	    else
     	    {
-                SHOW_ERROR( "operator 'break' can not be outside the while loop" );
+                PCOMP_ERROR( "operator 'break' can't be used outside of a loop" );
                 YYERROR;
             }
         }
@@ -626,7 +625,7 @@ stat
     	    }
     	    else
     	    {
-                SHOW_ERROR( "operator 'continue' can not be outside the while loop" );
+                PCOMP_ERROR( "operator 'continue' can't be used outside of a loop" );
                 YYERROR;
             }
         }
@@ -642,12 +641,14 @@ stat
 	    pcomp->fn_pars_mode = 0;
 	    if( pcomp->var_flags[ $3.i ] & VAR_FLAG_FUNCTION )
 	    {
-		SHOW_ERROR( "function %s is already defined", pix_vm_get_variable_name( pcomp->vm, $3.i ) );
+		PCOMP_ERROR( "function %s is already defined", pix_vm_get_variable_name( pcomp->vm, $3.i ) );
+		remove_lsym_table( pcomp, NULL );
                 YYERROR;
 	    }
 	    if( pcomp->var_flags[ $3.i ] & VAR_FLAG_LABEL )
 	    {
-		SHOW_ERROR( "function %s is already defined as label", pix_vm_get_variable_name( pcomp->vm, $3.i ) );
+		PCOMP_ERROR( "function %s is already defined as label", pix_vm_get_variable_name( pcomp->vm, $3.i ) );
+		remove_lsym_table( pcomp, NULL );
                 YYERROR;
 	    }
 	    pcomp->var_flags[ $3.i ] |= VAR_FLAG_FUNCTION | VAR_FLAG_INITIALIZED;
@@ -657,7 +658,7 @@ stat
 	    DPRINT( "function\n" );
 	    //Remove local symbol table:
 	    $$.n = remove_lsym_table( pcomp, $9.n );
-	    if( $$.n == 0 ) YYERROR;
+	    if( $$.n == NULL ) YYERROR;
 	    //Add the header:
 	    $$.n->flags |= LNODE_FLAG_STATLIST_WITH_JMP_HEADER;
             //Add ret instruction to this statlist, because it is the function now:
@@ -686,7 +687,7 @@ stat
 		size_t fsize = sfs_get_file_size( new_name );
 		if( fsize == 0 )
 		{
-		    SHOW_ERROR( "%s not found", new_name );
+		    PCOMP_ERROR( "%s not found", new_name );
 		    smem_free( new_name );
 		    YYERROR;
 		}
@@ -835,7 +836,7 @@ expr
 //Compilation error message:
 void yyerror( pix_compiler* pcomp, char const* str )
 {
-    SHOW_ERROR( "%s", str );
+    PCOMP_ERROR( "%s", str );
 }
 
 //https://en.wikipedia.org/wiki/Escape_sequences_in_C
@@ -1229,7 +1230,7 @@ string_end:
 			    }
 			    else
 			    {
-				SHOW_ERROR( "can't create a new symbol for property" );
+				PCOMP_ERROR( "can't create a new symbol for property" );
             			return -1;
 			    }
 			}
@@ -1252,7 +1253,7 @@ string_end:
 				{
 				    //Named local variable:
 				    pix_symtab* lsym = pcomp->lsym[ pcomp->lsym_num ].lsym;
-				    if( lsym == 0 )
+				    if( !lsym )
 				    {
 					lsym = (pix_symtab*)smem_new( sizeof( pix_symtab ) );
 					pcomp->lsym[ pcomp->lsym_num ].lsym = lsym;
@@ -1290,7 +1291,7 @@ string_end:
 				    	    //Already created:
 				    	    if( pcomp->fn_pars_mode )
 				    	    {
-				    		SHOW_ERROR( "parameter %s is already defined", pcomp->temp_sym_name );
+				    		PCOMP_ERROR( "parameter %s is already defined", pcomp->temp_sym_name );
 				    		return -1;
 				    	    }
 				        }
@@ -1298,7 +1299,7 @@ string_end:
 				    }
 				    else
                         	    {
-                            		SHOW_ERROR( "can't create a new symbol for local variable" );
+                            		PCOMP_ERROR( "can't create a new symbol for local variable" );
                             		return -1;
                         	    }
 				}
@@ -1311,7 +1312,7 @@ string_end:
 			    pix_sym* sym = pix_symtab_lookup( pcomp->temp_sym_name, -1, 1, SYMTYPE_GVAR, 0, 0, &created, &pcomp->sym );
 			    if( sym == 0 )
                             {
-                                SHOW_ERROR( "can't create a new symbol for global variable" );
+                                PCOMP_ERROR( "can't create a new symbol for global variable" );
                                 return -1;
                             }
 			    if( created )
@@ -2307,7 +2308,7 @@ void fix_up( pix_compiler* pcomp )
 	pix_symtab_lookup( sname, -1, 1, stype, sval, 0, 0, &pcomp->sym ); \
 }
 
-int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base_path, pix_vm* vm )
+int pix_compile( char* src, int src_size, char* src_name, char* base_path, pix_vm* vm )
 {
     int rv = 0;
 
@@ -2316,13 +2317,13 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ticks_t start_time = stime_ticks();
 
     DPRINT( "Init...\n" );
-    pix_compiler* pcomp = (pix_compiler*)smem_new( sizeof( pix_compiler ) );
+    pix_compiler* pcomp = (pix_compiler*)smem_znew( sizeof( pix_compiler ) );
     if( !pcomp ) 
     {
+        ERROR( "memory allocation error" );
 	rv = 2;
 	goto compiler_end;
     }
-    smem_zero( pcomp );
     pcomp->vm = vm;
     pcomp->src = src;
     pcomp->src_size = src_size;
@@ -2346,8 +2347,9 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     }
     //Local symbol tables:
     pcomp->lsym = (pix_lsymtab*)smem_new( 8 * sizeof( pix_lsymtab ) );
-    if( pcomp->lsym == 0 )
+    if( !pcomp->lsym )
     {
+        ERROR( "memory allocation error" );
 	rv = 4;
 	goto compiler_end;
     }
@@ -2355,7 +2357,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     //Set base path:
     pcomp->base_path = base_path;
     DPRINT( "Base path: %s\n", base_path );
-    
+
     DPRINT( "VM init...\n" );
     vm->vars_num = 128; //standard set of variables with one-char ASCII names
     vm->vars_num += PIX_GVARS - vm->vars_num;
@@ -2365,8 +2367,9 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     smem_zero( pcomp->var_flags );
     smem_free( vm->base_path );
     vm->base_path = (char*)smem_new( smem_strlen( base_path ) + 1 );
-    if( vm->base_path == 0 )
+    if( !vm->base_path )
     {
+        ERROR( "memory allocation error" );
 	rv = 5;
 	goto compiler_end;
     }
@@ -2379,11 +2382,12 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     pix_vm_gfx_set_screen( vm->screen, vm );
     //Fonts:
     {
-	for( int i = 0; i < PIX_VM_FONTS; i++ )
+	for( int i = 0; i < vm->fonts_num; i++ )
 	    vm->fonts[ i ].font = -1;
 	COLORPTR font_data = (COLORPTR)smem_new( g_font8x8_xsize * g_font8x8_ysize * COLORLEN );
-	if( font_data == 0 )
+	if( !font_data )
 	{
+    	    ERROR( "memory allocation error" );
 	    rv = 6;
 	    goto compiler_end;
 	}
@@ -2405,11 +2409,20 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 	}
 	PIX_CID fc = pix_vm_new_container( -1, g_font8x8_xsize, g_font8x8_ysize, 32, font_data, vm );
 	pix_vm_set_container_flags( fc, pix_vm_get_container_flags( fc, vm ) | PIX_CONTAINER_FLAG_SYSTEM_MANAGED, vm );
-	vm->fonts[ 0 ].font = fc;
-	vm->fonts[ 0 ].xchars = g_font8x8_xchars;
-	vm->fonts[ 0 ].ychars = g_font8x8_ychars;
-	vm->fonts[ 0 ].first = 32;
-	vm->fonts[ 0 ].last = 32 + g_font8x8_xchars * g_font8x8_ychars - 1;
+	pix_vm_font* font = &vm->fonts[ 0 ];
+	font->font = fc;
+	font->first = 32;
+	font->last = 32 + g_font8x8_xchars * g_font8x8_ychars - 1;
+	font->xchars = g_font8x8_xchars;
+	font->ychars = g_font8x8_ychars;
+	font->char_xsize = g_font8x8_xsize / g_font8x8_xchars;
+	font->char_ysize = g_font8x8_ysize / g_font8x8_ychars;
+	font->char_xsize2 = font->char_xsize;
+	font->char_ysize2 = font->char_ysize;
+	font->grid_xoffset = 0;
+	font->grid_yoffset = 0;
+	font->grid_cell_xsize = font->char_xsize;
+	font->grid_cell_ysize = font->char_ysize;
 	pix_vm_set_container_flags( fc, pix_vm_get_container_flags( fc, vm ) | PIX_CONTAINER_FLAG_USES_KEY, vm );
 	pix_vm_set_container_key_color( fc, font_data[ 0 ], vm );
     }
@@ -2442,7 +2455,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     vm->vars[ PIX_GVAR_PPI ].i = 0;
     vm->vars[ PIX_GVAR_SCALE ].f = 1;
     vm->vars[ PIX_GVAR_FONT_SCALE ].f = 1;
-    
+
     DPRINT( "Adding base symbols...\n" );
     ADD_SYMBOL( "while", SYMTYPE_WHILE, 0 );
     ADD_SYMBOL( "for", SYMTYPE_FOR, 0 );
@@ -2493,6 +2506,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_NO_YREPEAT", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NO_YREPEAT );
     ADD_SYMBOL( "GL_NICEST", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NICEST );
     ADD_SYMBOL( "GL_NO_ALPHA", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NO_ALPHA );
+    ADD_SYMBOL( "GL_NPOT", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_GL_NPOT );
     ADD_SYMBOL( "CFLAG_INTERP", SYMTYPE_NUM_I, PIX_CONTAINER_FLAG_INTERP );
     //Container copying flags:
     ADD_SYMBOL( "COPY_NO_AUTOROTATE", SYMTYPE_NUM_I, PIX_COPY_NO_AUTOROTATE );
@@ -2509,17 +2523,17 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "CONV_FILTER_BORDER_SKIP", SYMTYPE_NUM_I, PIX_CONV_FILTER_BORDER_SKIP );
     ADD_SYMBOL( "CONV_FILTER_UNSIGNED", SYMTYPE_NUM_I, PIX_CONV_FILTER_UNSIGNED );
     //Colors:
-    ADD_SYMBOL( "ORANGE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 128, 16 ) );
-    ADD_SYMBOL( "ORANJ", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 128, 16 ) );
-    ADD_SYMBOL( "BLACK", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 0, 0 ) );
-    ADD_SYMBOL( "WHITE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 255 ) );
-    ADD_SYMBOL( "SNEG", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 255 ) );
-    ADD_SYMBOL( "YELLOW", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 0 ) );
-    ADD_SYMBOL( "SUN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 255, 0 ) );
-    ADD_SYMBOL( "RED", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 255, 0, 0 ) );
-    ADD_SYMBOL( "GREEN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 255, 0 ) );
-    ADD_SYMBOL( "ZELEN", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 255, 0 ) );
-    ADD_SYMBOL( "BLUE", SYMTYPE_NUM_I, (COLORSIGNED)get_color( 0, 0, 255 ) );
+    ADD_SYMBOL( "ORANGE", SYMTYPE_NUM_I, get_color( 255, 128, 16 ) );
+    ADD_SYMBOL( "ORANJ", SYMTYPE_NUM_I, get_color( 255, 128, 16 ) );
+    ADD_SYMBOL( "BLACK", SYMTYPE_NUM_I, get_color( 0, 0, 0 ) );
+    ADD_SYMBOL( "WHITE", SYMTYPE_NUM_I, get_color( 255, 255, 255 ) );
+    ADD_SYMBOL( "SNEG", SYMTYPE_NUM_I, get_color( 255, 255, 255 ) );
+    ADD_SYMBOL( "YELLOW", SYMTYPE_NUM_I, get_color( 255, 255, 0 ) );
+    ADD_SYMBOL( "SUN", SYMTYPE_NUM_I, get_color( 255, 255, 0 ) );
+    ADD_SYMBOL( "RED", SYMTYPE_NUM_I, get_color( 255, 0, 0 ) );
+    ADD_SYMBOL( "GREEN", SYMTYPE_NUM_I, get_color( 0, 255, 0 ) );
+    ADD_SYMBOL( "ZELEN", SYMTYPE_NUM_I, get_color( 0, 255, 0 ) );
+    ADD_SYMBOL( "BLUE", SYMTYPE_NUM_I, get_color( 0, 0, 255 ) );
     //Alignment:
     ADD_SYMBOL( "TOP", SYMTYPE_NUM_I, 1 );
     ADD_SYMBOL( "BOTTOM", SYMTYPE_NUM_I, 2 );
@@ -2575,8 +2589,12 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_SHADER_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_GRAD );
     ADD_SYMBOL( "GL_SHADER_TEX_ALPHA_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_ALPHA_SOLID );
     ADD_SYMBOL( "GL_SHADER_TEX_ALPHA_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_ALPHA_GRAD );
-    ADD_SYMBOL( "GL_SHADER_TEX_RGB_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGB_SOLID );
-    ADD_SYMBOL( "GL_SHADER_TEX_RGB_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGB_GRAD );
+	//GL_SHADER_TEX_RGB_* is actually RGBA (with alpha!)
+	//(we can't change it to GL_SHADER_TEX_RGBA_* because some pixi apps already use this const)
+        //that's why we use PIX_GL_DATA_FLAG_ALPHA_FF in pixilang_vm_opengl.cpp ...
+	//we probably need some new const like GL_SHADER_TEX_RGB1_* or GL_SHADER_TEX_RGB_NOALPHA_*
+    ADD_SYMBOL( "GL_SHADER_TEX_RGB_SOLID", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGBA_SOLID );
+    ADD_SYMBOL( "GL_SHADER_TEX_RGB_GRAD", SYMTYPE_NUM_I, -1 - GL_SHADER_TEX_RGBA_GRAD );
     //Values for gl_get_int() (glGetIntegerv) and gl_get_float() (glGetFloatv):
     ADD_SYMBOL( "GL_MAX_TEXTURE_SIZE", SYMTYPE_NUM_I, GL_MAX_TEXTURE_SIZE );
     ADD_SYMBOL( "GL_MAX_VERTEX_ATTRIBS", SYMTYPE_NUM_I, GL_MAX_VERTEX_ATTRIBS );
@@ -2587,24 +2605,24 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "GL_MAX_FRAGMENT_UNIFORM_VECTORS", SYMTYPE_NUM_I, GL_MAX_FRAGMENT_UNIFORM_VECTORS );
 #endif
     //File formats:
-    ADD_SYMBOL( "FORMAT_RAW", SYMTYPE_NUM_I, SFS_FILE_TYPE_UNKNOWN );
-    ADD_SYMBOL( "FORMAT_WAVE", SYMTYPE_NUM_I, SFS_FILE_TYPE_WAVE );
-    ADD_SYMBOL( "FORMAT_AIFF", SYMTYPE_NUM_I, SFS_FILE_TYPE_AIFF );
-    ADD_SYMBOL( "FORMAT_OGG", SYMTYPE_NUM_I, SFS_FILE_TYPE_OGG );
-    ADD_SYMBOL( "FORMAT_MP3", SYMTYPE_NUM_I, SFS_FILE_TYPE_MP3 );
-    ADD_SYMBOL( "FORMAT_FLAC", SYMTYPE_NUM_I, SFS_FILE_TYPE_FLAC );
-    ADD_SYMBOL( "FORMAT_MIDI", SYMTYPE_NUM_I, SFS_FILE_TYPE_MIDI );
-    ADD_SYMBOL( "FORMAT_SUNVOX", SYMTYPE_NUM_I, SFS_FILE_TYPE_SUNVOX );
-    ADD_SYMBOL( "FORMAT_SUNVOXMODULE", SYMTYPE_NUM_I, SFS_FILE_TYPE_SUNVOXMODULE );
-    ADD_SYMBOL( "FORMAT_XM", SYMTYPE_NUM_I, SFS_FILE_TYPE_XM );
-    ADD_SYMBOL( "FORMAT_MOD", SYMTYPE_NUM_I, SFS_FILE_TYPE_MOD );
-    ADD_SYMBOL( "FORMAT_JPEG", SYMTYPE_NUM_I, SFS_FILE_TYPE_JPEG );
-    ADD_SYMBOL( "FORMAT_PNG", SYMTYPE_NUM_I, SFS_FILE_TYPE_PNG );
-    ADD_SYMBOL( "FORMAT_GIF", SYMTYPE_NUM_I, SFS_FILE_TYPE_GIF );
-    ADD_SYMBOL( "FORMAT_AVI", SYMTYPE_NUM_I, SFS_FILE_TYPE_AVI );
-    ADD_SYMBOL( "FORMAT_MP4", SYMTYPE_NUM_I, SFS_FILE_TYPE_MP4 );
-    ADD_SYMBOL( "FORMAT_ZIP", SYMTYPE_NUM_I, SFS_FILE_TYPE_ZIP );
-    ADD_SYMBOL( "FORMAT_PIXICONTAINER", SYMTYPE_NUM_I, SFS_FILE_TYPE_PIXICONTAINER );
+    ADD_SYMBOL( "FORMAT_RAW", SYMTYPE_NUM_I, SFS_FILE_FMT_UNKNOWN );
+    ADD_SYMBOL( "FORMAT_WAVE", SYMTYPE_NUM_I, SFS_FILE_FMT_WAVE );
+    ADD_SYMBOL( "FORMAT_AIFF", SYMTYPE_NUM_I, SFS_FILE_FMT_AIFF );
+    ADD_SYMBOL( "FORMAT_OGG", SYMTYPE_NUM_I, SFS_FILE_FMT_OGG );
+    ADD_SYMBOL( "FORMAT_MP3", SYMTYPE_NUM_I, SFS_FILE_FMT_MP3 );
+    ADD_SYMBOL( "FORMAT_FLAC", SYMTYPE_NUM_I, SFS_FILE_FMT_FLAC );
+    ADD_SYMBOL( "FORMAT_MIDI", SYMTYPE_NUM_I, SFS_FILE_FMT_MIDI );
+    ADD_SYMBOL( "FORMAT_SUNVOX", SYMTYPE_NUM_I, SFS_FILE_FMT_SUNVOX );
+    ADD_SYMBOL( "FORMAT_SUNVOXMODULE", SYMTYPE_NUM_I, SFS_FILE_FMT_SUNVOXMODULE );
+    ADD_SYMBOL( "FORMAT_XM", SYMTYPE_NUM_I, SFS_FILE_FMT_XM );
+    ADD_SYMBOL( "FORMAT_MOD", SYMTYPE_NUM_I, SFS_FILE_FMT_MOD );
+    ADD_SYMBOL( "FORMAT_JPEG", SYMTYPE_NUM_I, SFS_FILE_FMT_JPEG );
+    ADD_SYMBOL( "FORMAT_PNG", SYMTYPE_NUM_I, SFS_FILE_FMT_PNG );
+    ADD_SYMBOL( "FORMAT_GIF", SYMTYPE_NUM_I, SFS_FILE_FMT_GIF );
+    ADD_SYMBOL( "FORMAT_AVI", SYMTYPE_NUM_I, SFS_FILE_FMT_AVI );
+    ADD_SYMBOL( "FORMAT_MP4", SYMTYPE_NUM_I, SFS_FILE_FMT_MP4 );
+    ADD_SYMBOL( "FORMAT_ZIP", SYMTYPE_NUM_I, SFS_FILE_FMT_ZIP );
+    ADD_SYMBOL( "FORMAT_PIXICONTAINER", SYMTYPE_NUM_I, SFS_FILE_FMT_PIXICONTAINER );
     //Load/Save options (flags):
     ADD_SYMBOL( "GIF_GRAYSCALE", SYMTYPE_NUM_I, PIX_GIF_GRAYSCALE );
     ADD_SYMBOL( "GIF_DITHER", SYMTYPE_NUM_I, PIX_GIF_DITHER );
@@ -2852,6 +2870,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "SV_TIME_MAP_SPEED", SYMTYPE_NUM_I, PIX_SV_TIME_MAP_SPEED );
     ADD_SYMBOL( "SV_TIME_MAP_FRAMECNT", SYMTYPE_NUM_I, PIX_SV_TIME_MAP_FRAMECNT );
     ADD_SYMBOL( "SV_MODULE_FLAG_EXISTS", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_EXISTS );
+    ADD_SYMBOL( "SV_MODULE_FLAG_GENERATOR", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_GENERATOR );
     ADD_SYMBOL( "SV_MODULE_FLAG_EFFECT", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_EFFECT );
     ADD_SYMBOL( "SV_MODULE_FLAG_MUTE", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_MUTE );
     ADD_SYMBOL( "SV_MODULE_FLAG_SOLO", SYMTYPE_NUM_I, PIX_SV_MODULE_FLAG_SOLO );
@@ -2866,6 +2885,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     ADD_SYMBOL( "NOTECMD_STOP", SYMTYPE_NUM_I, NOTECMD_STOP );
     ADD_SYMBOL( "NOTECMD_PLAY", SYMTYPE_NUM_I, NOTECMD_PLAY );
     ADD_SYMBOL( "NOTECMD_SET_PITCH", SYMTYPE_NUM_I, NOTECMD_SET_PITCH );
+    ADD_SYMBOL( "NOTECMD_CLEAN_MODULE", SYMTYPE_NUM_I, NOTECMD_CLEAN_MODULE );
 #endif
 
     DPRINT( "Adding global variables...\n" );
@@ -2888,7 +2908,7 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 
     DPRINT( "Compilation: lexical tree generation...\n" );
     pcomp->root = node( lnode_statlist, 0 );
-    if( pcomp->root == 0 )
+    if( !pcomp->root )
     {
 	rv = 7;
 	goto compiler_end;
@@ -2896,14 +2916,11 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     if( yyparse( pcomp ) )
     {
 	rv = 8;
-	goto compiler_end;
+	goto compiler_parse_error;
     }
-    //if( yyss ) { free( yyss ); yyss = 0; }
-    //if( yyvs ) { free( yyvs ); yyvs = 0; }
-    //yystacksize = 0;
     //Close last local symbol table:
     pcomp->root = remove_lsym_table( pcomp, pcomp->root );
-    if( pcomp->root == 0 )
+    if( !pcomp->root )
     {
 	rv = 9;
 	goto compiler_end;
@@ -2916,7 +2933,6 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
     vm->halt_addr = 0;
     compile_tree( pcomp, pcomp->root );
     fix_up( pcomp );
-    remove_tree( pcomp->root );
     DPRINT( "%d: RET_i ( 0 << OB )\n", (int)pcomp->vm->code_ptr );
     pix_vm_put_opcode( OPCODE_RET_i, vm );
 
@@ -2936,7 +2952,11 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 	}
     }
 
+compiler_parse_error:
+
     DPRINT( "Deinit...\n" );
+    while( pcomp->lsym_num >= 0 ) remove_lsym_table( pcomp, NULL );
+    remove_tree( pcomp->root );
     pix_symtab_deinit( &pcomp->sym );
     smem_free( pcomp->var_flags );
     smem_free( pcomp->lsym );
@@ -2948,13 +2968,8 @@ int pix_compile_from_memory( char* src, int src_size, char* src_name, char* base
 compiler_end:
 
     ticks_t end_time = stime_ticks();
-    
+
     DPRINT( "Pixilang compiler finished. %d ms.\n", ( ( end_time - start_time ) * 1000 ) / stime_ticks_per_second() );
-    
-    if( rv )
-    {
-	ERROR( "%d", rv );
-    }
 
     return rv;
 }
@@ -2963,13 +2978,14 @@ compiler_end:
 extern void pix_decode_source( void* src, size_t size );
 #endif
 
-int pix_compile( const char* name, pix_vm* vm )
+//Load *.pixicode file or compile *.pixi source file
+int pix_load( const char* name, pix_vm* vm )
 {
     int rv = 0;
-    
-    char* src = 0;
-    char* base_path = 0;
-    
+
+    char* src = NULL;
+    char* base_path = NULL;
+
     size_t fsize = sfs_get_file_size( name );
     if( fsize >= 8 )
     {
@@ -2984,7 +3000,11 @@ int pix_compile( const char* name, pix_vm* vm )
 	    {
 		//Binary code:
 		base_path = pix_get_base_path( name );
-		pix_vm_load_code( name, base_path, vm );
+		int load_code_err = pix_vm_load_code( name, base_path, vm );
+		if( load_code_err )
+		{
+		    rv = 5 + load_code_err * 100;
+		}
 		goto pix_compile_end;
 	    }
 	}
@@ -2992,9 +3012,10 @@ int pix_compile( const char* name, pix_vm* vm )
     if( fsize )
     {
 	src = (char*)smem_new( fsize );
-	if( src == 0 ) 
+	if( !src ) 
 	{
 	    rv = 1;
+	    ERROR( "memory allocation error" );
 	    goto pix_compile_end;
 	}
 	sfs_file f = sfs_open( name, "rb" );
@@ -3017,33 +3038,29 @@ int pix_compile( const char* name, pix_vm* vm )
 		sfs_rewind( f );
 	    }
 	}
-	sfs_read( src, 1, fsize, f );	
+	sfs_read( src, 1, fsize, f );
 	sfs_close( f );
 	base_path = pix_get_base_path( name );
 #ifdef PIX_ENCODED_SOURCE
 	pix_decode_source( src, fsize );
 #endif
-	if( pix_compile_from_memory( src, fsize, (char*)name, base_path, vm ) )
+	int comp_err = pix_compile( src, fsize, (char*)name, base_path, vm );
+	if( comp_err )
 	{
-	    rv = 3;
+	    rv = 3 + comp_err * 100;
 	    goto pix_compile_end;
 	}
     }
-    else 
+    else
     {
 	ERROR( "%s not found (or it's empty)", name );
 	rv = 4;
     }
-    
+
 pix_compile_end:
-    
+
     smem_free( src );
     smem_free( base_path );
-    
-    if( rv )
-    {
-	ERROR( "%d", rv );
-    }
-    
+
     return rv;
 }

@@ -1,7 +1,7 @@
 /*
     wm_opengl.h - platform-dependent module : OpenGL
     This file is part of the SunDog engine.
-    Copyright (C) 2004 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2004 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -395,8 +395,8 @@ void gl_resize( window_manager* wm )
             matrix_4x4_rotate( -90 * 3, 0, 0, 1, wm->gl_projection_matrix );
             break;
     }
-    //Small shift for correct display of 2D UI elements:
-    matrix_4x4_translate( 0.375, 0.375, 0, wm->gl_projection_matrix );
+    //Small shift for correct (per-pixel accuracy) display of 2D UI elements:
+    //matrix_4x4_translate( 0.375, 0.375, 0, wm->gl_projection_matrix ); //replaced by g_xy_add on 15 dec 2022
     //UI scale:
     if( wm->gl_xscale != 1 && wm->gl_yscale != 1 )
     {
@@ -438,10 +438,11 @@ void gl_set_default_blend_func( window_manager* wm )
 
 static const char* g_gl_vshader_solid = "\
 uniform mat4 g_projection; // shader projection matrix uniform \n\
+uniform float g_xy_add; // additional offset of each vertex; used for pixel-accurate drawing of dots and lines \n\
 IN vec4 position; // vertex position attribute \n\
 void main() \n\
 { \n\
-    gl_Position = g_projection * position; \n\
+    gl_Position = g_projection * ( position + vec4( g_xy_add, g_xy_add, 0, 0 ) ); \n\
     gl_PointSize = 1.0; \n\
 } \n\
 ";
@@ -497,7 +498,7 @@ uniform vec4 g_color; \n\
 IN vec2 tex_coord_var; \n\
 void main() \n\
 { \n\
-    gl_FragColor = vec4( 1, 1, 1, texture2D( g_texture, tex_coord_var ).a ) * g_color; \n\
+    gl_FragColor = vec4( 1.0, 1.0, 1.0, texture2D( g_texture, tex_coord_var ).a ) * g_color; \n\
 } \n\
 ";
 
@@ -508,7 +509,9 @@ uniform vec4 g_color; \n\
 IN vec2 tex_coord_var; \n\
 void main() \n\
 { \n\
-    gl_FragColor = texture2D( g_texture, tex_coord_var ) * g_color; \n\
+    vec4 t = texture2D( g_texture, tex_coord_var ); \n\
+    t.a = 1.0; \n\
+    gl_FragColor = t * g_color; \n\
 } \n\
 ";
 
@@ -561,7 +564,7 @@ char* gl_get_source_with_line_nums( const char* src, int line_offset )
 	line++;
 	smem_copy( &new_src[ i2 ], line_str, line_str_len );
 	i2 += line_str_len;
-	
+
 	while( 1 )
 	{
 	    char c = src[ i ];
@@ -579,7 +582,7 @@ char* gl_get_source_with_line_nums( const char* src, int line_offset )
 GLuint gl_make_shader( const char* shader_source, GLenum type )
 {
     GLuint shader = 0;
-    
+
     while( 1 )
     {
         static const char* glsl_defaults_v = "\
@@ -645,17 +648,17 @@ GLuint gl_make_shader( const char* shader_source, GLenum type )
 	    glsl_defaults = glsl_defaults_v;
 	else
 	    glsl_defaults = glsl_defaults_f;
-    
+
 	char* shader_source2 = (char*)smem_new( smem_strlen( glsl_defaults ) + smem_strlen( shader_source ) + 2 );
 	sprintf( shader_source2, "%s%s", glsl_defaults, shader_source );
-	
+
 	shader = glCreateShader( type );
 	if( shader == 0 ) 
 	{
 	    gl_error( "glCreateShader()" );
 	    break;
 	}
- 
+
 	glShaderSource( shader, 1, (const char**)&shader_source2, NULL );
         glCompileShader( shader );
         GLint success = 0;
@@ -678,23 +681,23 @@ GLuint gl_make_shader( const char* shader_source, GLenum type )
 	    shader = 0;
 	    break;
 	}
-	
+
 	//gl_print_shader_info_log( shader );
 	smem_free( shader_source2 );
-	
+
 	break;
     }
-    
+
     return shader;
 }
 
 GLuint gl_make_program( GLuint vertex_shader, GLuint fragment_shader )
 {
     GLuint program = 0;
-    
+
     //Vertex and fragment shaders are successfully compiled.
     //Now time to link them together into a program.
-    
+
     while( 1 )
     {
 	//Get a program object:
@@ -704,11 +707,11 @@ GLuint gl_make_program( GLuint vertex_shader, GLuint fragment_shader )
             gl_error( "glCreateProgram()" );
             break;
         }
-    
+
 	//Attach our shaders to our program:
 	glAttachShader( program, vertex_shader );
 	glAttachShader( program, fragment_shader );
-	
+
 	//Link our program:
 	glLinkProgram( program );
         GLint success = 0;
@@ -721,7 +724,7 @@ GLuint gl_make_program( GLuint vertex_shader, GLuint fragment_shader )
 	    program = 0;
 	    break;
 	}
-	
+
 	//Always detach shaders after a successful link.
 #ifdef OS_ANDROID
 	if( g_gl_no_shader_detach == false )
@@ -730,44 +733,44 @@ GLuint gl_make_program( GLuint vertex_shader, GLuint fragment_shader )
 	    glDetachShader( program, vertex_shader );
 	    glDetachShader( program, fragment_shader );
 	}
-		
+
 	break;
     }
-    
+
     return program;
 }
 
 gl_program_struct* gl_program_new( GLuint vertex_shader, GLuint fragment_shader )
 {
-    gl_program_struct* rv = 0;
-    
+    gl_program_struct* rv = NULL;
+
     while( 1 )
     {
-	rv = (gl_program_struct*)smem_new( sizeof( gl_program_struct ) );
-	if( rv == 0 ) break;
-	smem_zero( rv );
+	rv = (gl_program_struct*)smem_znew( sizeof( gl_program_struct ) );
+	if( !rv ) break;
 	for( int i = 0; i < GL_PROG_ATT_MAX; i++ )
 	    rv->attributes[ i ] = -1;
 	for( int i = 0; i < GL_PROG_UNI_MAX; i++ )
 	    rv->uniforms[ i ] = -1;
-	
+	rv->xy_add = -1; //force default initialization
+
 	rv->program = gl_make_program( vertex_shader, fragment_shader );
-	if( rv->program == 0 ) 
+	if( !rv->program )
 	{
 	    smem_free( rv );
-	    rv = 0;
+	    rv = NULL;
 	    break;
 	}
 
 	break;
     }
-    
+
     return rv;
 }
 
 void gl_program_remove( gl_program_struct* p )
 {
-    if( p == 0 ) return;
+    if( !p ) return;
     glDeleteProgram( p->program );
     smem_free( p );
 }
@@ -815,7 +818,7 @@ int gl_default_shaders_init( window_manager* wm )
     {
 	wm->gl_transform_counter = 0;
 	wm->gl_current_prog = 0;
-	
+
 	GLuint vshader_solid;
 	GLuint vshader_gradient;
 	GLuint vshader_tex;
@@ -823,45 +826,46 @@ int gl_default_shaders_init( window_manager* wm )
         GLuint fshader_gradient;
         GLuint fshader_tex_alpha;
         GLuint fshader_tex_rgb;
-	
+
 	vshader_solid = gl_make_shader( g_gl_vshader_solid, GL_VERTEX_SHADER );
-	if( vshader_solid == 0 ) break;
+	if( !vshader_solid ) break;
 
 	vshader_gradient = gl_make_shader( g_gl_vshader_gradient, GL_VERTEX_SHADER );
-	if( vshader_gradient == 0 ) break;
+	if( !vshader_gradient ) break;
 
 	vshader_tex = gl_make_shader( g_gl_vshader_tex, GL_VERTEX_SHADER );
-	if( vshader_tex == 0 ) break;
+	if( !vshader_tex ) break;
 
 	fshader_solid = gl_make_shader( g_gl_fshader_solid, GL_FRAGMENT_SHADER );
-	if( fshader_solid == 0 ) break;
+	if( !fshader_solid ) break;
 
 	fshader_gradient = gl_make_shader( g_gl_fshader_gradient, GL_FRAGMENT_SHADER );
-	if( fshader_gradient == 0 ) break;
+	if( !fshader_gradient ) break;
 
 	fshader_tex_alpha = gl_make_shader( g_gl_fshader_tex_alpha, GL_FRAGMENT_SHADER );
-	if( fshader_tex_alpha == 0 ) break;
+	if( !fshader_tex_alpha ) break;
 
 	fshader_tex_rgb = gl_make_shader( g_gl_fshader_tex_rgb, GL_FRAGMENT_SHADER );
-	if( fshader_tex_rgb == 0 ) break;
+	if( !fshader_tex_rgb ) break;
 
 	wm->gl_prog_solid = gl_program_new( vshader_solid, fshader_solid );
 	p = wm->gl_prog_solid;
-	if( p == 0 ) break;
+	if( !p ) break;
 	gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_projection" );
+	gl_init_uniform( p, GL_PROG_UNI_XY_ADD, "g_xy_add" );
 	gl_init_uniform( p, GL_PROG_UNI_COLOR, "g_color" );
 	gl_init_attribute( p, GL_PROG_ATT_POSITION, "position" );
 
 	wm->gl_prog_gradient = gl_program_new( vshader_gradient, fshader_gradient );
 	p = wm->gl_prog_gradient;
-	if( p == 0 ) break;
+	if( !p ) break;
 	gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_projection" );
 	gl_init_attribute( p, GL_PROG_ATT_POSITION, "position" );
 	gl_init_attribute( p, GL_PROG_ATT_COLOR, "color" );
 
 	wm->gl_prog_tex_alpha = gl_program_new( vshader_tex, fshader_tex_alpha );
 	p = wm->gl_prog_tex_alpha;
-	if( p == 0 ) break;
+	if( !p ) break;
 	gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_projection" );
 	gl_init_uniform( p, GL_PROG_UNI_COLOR, "g_color" );
 	gl_init_uniform( p, GL_PROG_UNI_TEXTURE, "g_texture" );
@@ -870,7 +874,7 @@ int gl_default_shaders_init( window_manager* wm )
 
 	wm->gl_prog_tex_rgb = gl_program_new( vshader_tex, fshader_tex_rgb );
 	p = wm->gl_prog_tex_rgb;
-	if( p == 0 ) break;
+	if( !p ) break;
 	gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_projection" );
 	gl_init_uniform( p, GL_PROG_UNI_COLOR, "g_color" );
 	gl_init_uniform( p, GL_PROG_UNI_TEXTURE, "g_texture" );
@@ -931,6 +935,7 @@ void gl_draw_points( int16_t* coord2d, COLOR color, int count, window_manager* w
 	gl_enable_attributes( p, 1 << GL_PROG_ATT_POSITION );
     }
     GL_CHANGE_PROG_COLOR( p, color, opacity );
+    GL_CHANGE_PROG_XY_ADD( p, GL_2D_LINE_SHIFT );
     glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, coord2d );
     glDrawArrays( GL_POINTS, 0, count );
     glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, wm->gl_array_s ); //because all other gl_prog_solid users use the gl_array_s
@@ -946,12 +951,13 @@ void gl_draw_triangles( int16_t* coord2d, COLOR color, int count, window_manager
 	gl_enable_attributes( p, 1 << GL_PROG_ATT_POSITION );
     }
     GL_CHANGE_PROG_COLOR( p, color, opacity );
+    GL_CHANGE_PROG_XY_ADD( p, 0 );
     glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, coord2d );
     glDrawArrays( GL_TRIANGLES, 0, count * 3 );
     glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, wm->gl_array_s ); //because all other gl_prog_solid users use the gl_array_s
 }
 
-void gl_draw_polygon( sundog_polygon* poly, window_manager* wm )
+void gl_draw_polygon( sdwm_polygon* poly, window_manager* wm )
 {
     int16_t* v = wm->gl_array_s;
     uint8_t* c = wm->gl_array_c;
@@ -1020,16 +1026,16 @@ void gl_draw_image_scaled(
     int dest_xs, int dest_ys,
     float src_x, float src_y,
     float src_xs, float src_ys,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
     uint8_t opacity = img->opacity;
 
     int16_t* v = wm->gl_array_s;
-    v[ 0 ] = (int16_t)dest_x; v[ 1 ] = (int16_t)dest_y;
-    v[ 2 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 3 ] = (int16_t)dest_y;
-    v[ 4 ] = (int16_t)dest_x; v[ 5 ] = (int16_t)dest_y + (int16_t)dest_ys;
-    v[ 6 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 7 ] = (int16_t)dest_y + (int16_t)dest_ys;
+    v[ 0 ] = dest_x; v[ 1 ] = dest_y;
+    v[ 2 ] = dest_x + dest_xs; v[ 3 ] = dest_y;
+    v[ 4 ] = dest_x; v[ 5 ] = dest_y + dest_ys;
+    v[ 6 ] = dest_x + dest_xs; v[ 7 ] = dest_y + dest_ys;
 
     float* t = wm->gl_array_f;
     float tx = (float)src_x / (float)img->gl_xsize;
@@ -1065,16 +1071,16 @@ void gl_draw_image_scaled_vert(
     int dest_xs, int dest_ys,
     float src_x, float src_y, //source in normal (norizontal) orientation
     float src_xs, float src_ys,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
     uint8_t opacity = img->opacity;
 
     int16_t* v = wm->gl_array_s;
-    v[ 0 ] = (int16_t)dest_x; v[ 1 ] = (int16_t)dest_y;
-    v[ 2 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 3 ] = (int16_t)dest_y;
-    v[ 4 ] = (int16_t)dest_x; v[ 5 ] = (int16_t)dest_y + (int16_t)dest_ys;
-    v[ 6 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 7 ] = (int16_t)dest_y + (int16_t)dest_ys;
+    v[ 0 ] = dest_x; v[ 1 ] = dest_y;
+    v[ 2 ] = dest_x + dest_xs; v[ 3 ] = dest_y;
+    v[ 4 ] = dest_x; v[ 5 ] = dest_y + dest_ys;
+    v[ 6 ] = dest_x + dest_xs; v[ 7 ] = dest_y + dest_ys;
 
     float* t = wm->gl_array_f;
     float tx = (float)src_x / (float)img->gl_xsize;
@@ -1115,8 +1121,8 @@ void gl_draw_line( int x1, int y1, int x2, int y2, COLOR color, window_manager* 
 {
     uint8_t opacity = wm->cur_opacity;
     int16_t* v = wm->gl_array_s;
-    v[ 0 ] = (int16_t)x1; v[ 1 ] = (int16_t)y1;
-    v[ 2 ] = (int16_t)x2; v[ 3 ] = (int16_t)y2;
+    v[ 0 ] = x1; v[ 1 ] = y1;
+    v[ 2 ] = x2; v[ 3 ] = y2;
     gl_program_struct* p = wm->gl_prog_solid;
     if( wm->gl_current_prog != p )
     {
@@ -1125,6 +1131,7 @@ void gl_draw_line( int x1, int y1, int x2, int y2, COLOR color, window_manager* 
 	glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, v );
     }
     GL_CHANGE_PROG_COLOR( p, color, opacity );
+    GL_CHANGE_PROG_XY_ADD( p, GL_2D_LINE_SHIFT );
     glDrawArrays( GL_LINES, 0, 2 );
     if( !wm->gl_no_points )
 	glDrawArrays( GL_POINTS, 1, 1 );
@@ -1134,10 +1141,10 @@ void gl_draw_frect( int x, int y, int xsize, int ysize, COLOR color, window_mana
 {
     uint8_t opacity = wm->cur_opacity; 
     int16_t* v = wm->gl_array_s;
-    v[ 0 ] = (int16_t)x; v[ 1 ] = (int16_t)y;
-    v[ 2 ] = (int16_t)x + (int16_t)xsize; v[ 3 ] = (int16_t)y;
-    v[ 4 ] = (int16_t)x; v[ 5 ] = (int16_t)y + (int16_t)ysize;
-    v[ 6 ] = (int16_t)x + (int16_t)xsize; v[ 7 ] = (int16_t)y + (int16_t)ysize;
+    v[ 0 ] = x; v[ 1 ] = y;
+    v[ 2 ] = x + xsize; v[ 3 ] = y;
+    v[ 4 ] = x; v[ 5 ] = y + ysize;
+    v[ 6 ] = x + xsize; v[ 7 ] = y + ysize;
     gl_program_struct* p = wm->gl_prog_solid;
     if( wm->gl_current_prog != p )
     {
@@ -1146,6 +1153,7 @@ void gl_draw_frect( int x, int y, int xsize, int ysize, COLOR color, window_mana
 	glVertexAttribPointer( p->attributes[ GL_PROG_ATT_POSITION ], 2, GL_SHORT, false, 0, v );
     }
     GL_CHANGE_PROG_COLOR( p, color, opacity );
+    GL_CHANGE_PROG_XY_ADD( p, 0 );
     glDrawArrays( GL_TRIANGLE_STRIP, 0, 4 );
 }
 
@@ -1153,16 +1161,16 @@ void gl_draw_image(
     int dest_x, int dest_y, 
     int dest_xs, int dest_ys,
     int src_x, int src_y,
-    sundog_image* img,
+    sdwm_image* img,
     window_manager* wm )
 {
     uint8_t opacity = img->opacity;
 
     int16_t* v = wm->gl_array_s;
-    v[ 0 ] = (int16_t)dest_x; v[ 1 ] = (int16_t)dest_y;
-    v[ 2 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 3 ] = (int16_t)dest_y;
-    v[ 4 ] = (int16_t)dest_x; v[ 5 ] = (int16_t)dest_y + (int16_t)dest_ys;
-    v[ 6 ] = (int16_t)dest_x + (int16_t)dest_xs; v[ 7 ] = (int16_t)dest_y + (int16_t)dest_ys;
+    v[ 0 ] = dest_x; v[ 1 ] = dest_y;
+    v[ 2 ] = dest_x + dest_xs; v[ 3 ] = dest_y;
+    v[ 4 ] = dest_x; v[ 5 ] = dest_y + dest_ys;
+    v[ 6 ] = dest_x + dest_xs; v[ 7 ] = dest_y + dest_ys;
 
     float* t = wm->gl_array_f;
     float tx = (float)src_x / (float)img->gl_xsize;

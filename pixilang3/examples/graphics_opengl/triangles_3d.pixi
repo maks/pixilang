@@ -43,20 +43,20 @@ fn gl_callback( $userdata )
     if get_zbuf() != -1
     {
 	set_zbuf( -1 )
-	print( "Z-Buffer ON", -WINDOW_XSIZE / 2 + 8, -WINDOW_YSIZE / 2 + 8, WHITE, TOP | LEFT )
+	print( "Z-Buffer ON", -WINDOW_XSIZE div 2 + 8, -WINDOW_YSIZE div 2 + 8, WHITE, TOP | LEFT )
     }
     else
     {
-	print( "Z-Buffer OFF", -WINDOW_XSIZE / 2 + 8, -WINDOW_YSIZE / 2 + 8, WHITE, TOP | LEFT )
+	print( "Z-Buffer OFF", -WINDOW_XSIZE div 2 + 8, -WINDOW_YSIZE div 2 + 8, WHITE, TOP | LEFT )
     }
     if tt == tt1
     {
-	print( "Textured", -WINDOW_XSIZE / 2 + 8, -WINDOW_YSIZE / 2 + 16, WHITE, TOP | LEFT )
+	print( "Textured", -WINDOW_XSIZE div 2 + 8, -WINDOW_YSIZE div 2 + 16, WHITE, TOP | LEFT )
     }
     
     ts = ""
     sprintf( ts, "FPS:%u", FPS )
-    print( ts, -WINDOW_XSIZE / 2 + 8, WINDOW_YSIZE / 2 - 8, WHITE, BOTTOM | LEFT )
+    print( ts, -WINDOW_XSIZE div 2 + 8, WINDOW_YSIZE div 2 - 8, WHITE, BOTTOM | LEFT )
 
     set_zbuf( -1 )
     set_screen( 0 )

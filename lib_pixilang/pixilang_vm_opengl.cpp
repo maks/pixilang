@@ -1,7 +1,7 @@
 /*
     pixilang_vm_opengl.cpp
     This file is part of the Pixilang.
-    Copyright (C) 2015 - 2022 Alexander Zolotov <nightradio@gmail.com>
+    Copyright (C) 2015 - 2023 Alexander Zolotov <nightradio@gmail.com>
     WarmPlace.ru
 */
 
@@ -108,7 +108,7 @@ void main() \n\
 } \n\
 ";
 
-static const char* g_gl_fshader_tex_rgb_solid = "\
+static const char* g_gl_fshader_tex_rgba_solid = "\
 PRECISION( MEDIUMP, float ) \n\
 uniform sampler2D g_texture; \n\
 uniform vec4 g_color; \n\
@@ -119,7 +119,7 @@ void main() \n\
 } \n\
 ";
 
-static const char* g_gl_fshader_tex_rgb_gradient = "\
+static const char* g_gl_fshader_tex_rgba_gradient = "\
 PRECISION( MEDIUMP, float ) \n\
 uniform sampler2D g_texture; \n\
 IN vec2 tex_coord_var; \n\
@@ -207,11 +207,11 @@ int pix_vm_gl_init( pix_vm* vm )
         vm->gl_fshader_tex_alpha_gradient = gl_make_shader( g_gl_fshader_tex_alpha_gradient, GL_FRAGMENT_SHADER );
         if( vm->gl_fshader_tex_alpha_gradient == 0 ) break;
         
-        vm->gl_fshader_tex_rgb_solid = gl_make_shader( g_gl_fshader_tex_rgb_solid, GL_FRAGMENT_SHADER );
-        if( vm->gl_fshader_tex_rgb_solid == 0 ) break;
+        vm->gl_fshader_tex_rgba_solid = gl_make_shader( g_gl_fshader_tex_rgba_solid, GL_FRAGMENT_SHADER );
+        if( vm->gl_fshader_tex_rgba_solid == 0 ) break;
      
-        vm->gl_fshader_tex_rgb_gradient = gl_make_shader( g_gl_fshader_tex_rgb_gradient, GL_FRAGMENT_SHADER );
-        if( vm->gl_fshader_tex_rgb_gradient == 0 ) break;
+        vm->gl_fshader_tex_rgba_gradient = gl_make_shader( g_gl_fshader_tex_rgba_gradient, GL_FRAGMENT_SHADER );
+        if( vm->gl_fshader_tex_rgba_gradient == 0 ) break;
 
         vm->gl_prog_solid = gl_program_new( vm->gl_vshader_solid, vm->gl_fshader_solid );
         p = vm->gl_prog_solid; if( p == 0 ) break;
@@ -245,8 +245,8 @@ int pix_vm_gl_init( pix_vm* vm )
         gl_init_attribute( p, GL_PROG_ATT_TEX_COORD, "tex_coord" );
         gl_init_attribute( p, GL_PROG_ATT_COLOR, "color" );
 
-        vm->gl_prog_tex_rgb_solid = gl_program_new( vm->gl_vshader_tex_solid, vm->gl_fshader_tex_rgb_solid );
-        p = vm->gl_prog_tex_rgb_solid; if( p == 0 ) break;
+        vm->gl_prog_tex_rgba_solid = gl_program_new( vm->gl_vshader_tex_solid, vm->gl_fshader_tex_rgba_solid );
+        p = vm->gl_prog_tex_rgba_solid; if( p == 0 ) break;
         gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_wm_transform" );
         gl_init_uniform( p, GL_PROG_UNI_TRANSFORM2, "g_pixi_transform" );
         gl_init_uniform( p, GL_PROG_UNI_COLOR, "g_color" );
@@ -254,8 +254,8 @@ int pix_vm_gl_init( pix_vm* vm )
         gl_init_attribute( p, GL_PROG_ATT_POSITION, "position" );
         gl_init_attribute( p, GL_PROG_ATT_TEX_COORD, "tex_coord" );
 
-        vm->gl_prog_tex_rgb_gradient = gl_program_new( vm->gl_vshader_tex_gradient, vm->gl_fshader_tex_rgb_gradient );
-        p = vm->gl_prog_tex_rgb_gradient; if( p == 0 ) break;
+        vm->gl_prog_tex_rgba_gradient = gl_program_new( vm->gl_vshader_tex_gradient, vm->gl_fshader_tex_rgba_gradient );
+        p = vm->gl_prog_tex_rgba_gradient; if( p == 0 ) break;
         gl_init_uniform( p, GL_PROG_UNI_TRANSFORM1, "g_wm_transform" );
         gl_init_uniform( p, GL_PROG_UNI_TRANSFORM2, "g_pixi_transform" );
         gl_init_uniform( p, GL_PROG_UNI_TEXTURE, "g_texture" );
@@ -285,14 +285,14 @@ void pix_vm_gl_deinit( pix_vm* vm )
     glDeleteShader( vm->gl_fshader_gradient );
     glDeleteShader( vm->gl_fshader_tex_alpha_solid );
     glDeleteShader( vm->gl_fshader_tex_alpha_gradient );
-    glDeleteShader( vm->gl_fshader_tex_rgb_solid );
-    glDeleteShader( vm->gl_fshader_tex_rgb_gradient );
+    glDeleteShader( vm->gl_fshader_tex_rgba_solid );
+    glDeleteShader( vm->gl_fshader_tex_rgba_gradient );
     gl_program_remove( vm->gl_prog_solid );
     gl_program_remove( vm->gl_prog_gradient );
     gl_program_remove( vm->gl_prog_tex_alpha_solid );
     gl_program_remove( vm->gl_prog_tex_alpha_gradient );
-    gl_program_remove( vm->gl_prog_tex_rgb_solid );
-    gl_program_remove( vm->gl_prog_tex_rgb_gradient );
+    gl_program_remove( vm->gl_prog_tex_rgba_solid );
+    gl_program_remove( vm->gl_prog_tex_rgba_gradient );
 
     gl_unlock( vm->wm );
 
@@ -509,8 +509,8 @@ pix_vm_container_gl_data* pix_vm_create_container_gl_data( PIX_CID cnum, pix_vm*
 		        case GL_SHADER_GRAD: vshader_str = g_gl_vshader_gradient; break;
 		        case GL_SHADER_TEX_ALPHA_SOLID: vshader_str = g_gl_vshader_tex_solid; break;
 		        case GL_SHADER_TEX_ALPHA_GRAD: vshader_str = g_gl_vshader_tex_gradient; break;
-		        case GL_SHADER_TEX_RGB_SOLID: vshader_str = g_gl_vshader_tex_solid; break;
-		        case GL_SHADER_TEX_RGB_GRAD: vshader_str = g_gl_vshader_tex_gradient; break;
+		        case GL_SHADER_TEX_RGBA_SOLID: vshader_str = g_gl_vshader_tex_solid; break;
+		        case GL_SHADER_TEX_RGBA_GRAD: vshader_str = g_gl_vshader_tex_gradient; break;
 		        default: break;
 		    }
 		}
@@ -527,8 +527,8 @@ pix_vm_container_gl_data* pix_vm_create_container_gl_data( PIX_CID cnum, pix_vm*
 		        case GL_SHADER_GRAD: fshader_str = g_gl_fshader_gradient; break;
 		        case GL_SHADER_TEX_ALPHA_SOLID: fshader_str = g_gl_fshader_tex_alpha_solid; break;
 		        case GL_SHADER_TEX_ALPHA_GRAD: fshader_str = g_gl_fshader_tex_alpha_gradient; break;
-		        case GL_SHADER_TEX_RGB_SOLID: fshader_str = g_gl_fshader_tex_alpha_solid; break;
-		        case GL_SHADER_TEX_RGB_GRAD: fshader_str = g_gl_fshader_tex_alpha_gradient; break;
+		        case GL_SHADER_TEX_RGBA_SOLID: fshader_str = g_gl_fshader_tex_alpha_solid; break;
+		        case GL_SHADER_TEX_RGBA_GRAD: fshader_str = g_gl_fshader_tex_alpha_gradient; break;
 		        default: break;
 		    }
 		}
@@ -559,8 +559,22 @@ pix_vm_container_gl_data* pix_vm_create_container_gl_data( PIX_CID cnum, pix_vm*
         //Texture:
 
         int texture_size_larger = 0;
-        gl->xsize = round_to_power_of_two( c->xsize );
-	gl->ysize = round_to_power_of_two( c->ysize );
+	if( ( c->flags & PIX_CONTAINER_FLAG_GL_NPOT )
+#ifdef OS_IOS
+            && ( c->flags & PIX_CONTAINER_FLAG_GL_NO_XREPEAT ) && ( c->flags & PIX_CONTAINER_FLAG_GL_NO_YREPEAT )
+            //limitation of GLES 2.0
+            //(but on iOS devices only?)
+#endif
+           )
+        {
+    	    gl->xsize = c->xsize;
+	    gl->ysize = c->ysize;
+	}
+	else
+	{
+    	    gl->xsize = round_to_power_of_two( c->xsize );
+	    gl->ysize = round_to_power_of_two( c->ysize );
+	}
         if( gl->xsize != c->xsize )
     	    texture_size_larger |= 1;
 	if( gl->ysize != c->ysize )
