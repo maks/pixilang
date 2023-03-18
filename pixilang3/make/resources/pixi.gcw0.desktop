@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Pixilang
+Comment=Pixilang
+Exec=pixilang.dge %f
+Terminal=true
+Type=Application
+StartupNotify=true
+MimeType=text/plain;
+Icon=pixilang
+Categories=applications;
+X-OD-Manual=readme.txt
