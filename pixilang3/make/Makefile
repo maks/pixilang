@@ -85,6 +85,15 @@ ifeq ($(TARGET_OS),linux_x11_opengles_raspberry_pi)
 install:
 	mv -f $(APPNAME) ../bin/linux_$(TARGET_ARCH)$(ARCH_SUFFIX)/$(APPNAME)$(APPNAME_SUFFIX)
 endif
+ifeq ($(TARGET_OS),linux_opendingux)
+    LIBS = 
+    SUNDOG_DEFINES = \
+	-DDIRECTDRAW \
+	-DNOVCAP \
+	-D$(COLOR_TYPE)
+install:
+	mv -f $(APPNAME) ../bin/linux_$(TARGET_ARCH)$(ARCH_SUFFIX)/$(APPNAME)$(APPNAME_SUFFIX)
+endif
 ifeq ($(TARGET_OS),linux_android)
     LIBS = -lEGL -lGLESv2
     SUNDOG_DEFINES = \

@@ -45,6 +45,8 @@ else
 endif
 RPI_SDK = /opt/vc
 
+OPENDINGUX_SDK = /opt/gcw0-toolchain
+
 ##
 ## Target configuration
 ##
@@ -90,6 +92,17 @@ endif
 ##
 ifneq (,$(findstring maemo,$(TARGET_OS)))
     CFLAGS2 += -DOS_MAEMO
+endif
+##
+## Linux: Opendingux
+##
+ifneq (,$(findstring opendingux,$(TARGET_OS)))
+    SYSROOT = $(OPENDINGUX_SDK)/mipsel-gcw0-linux-uclibc/sysroot/
+    CC = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-gcc
+    CXX = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-g++
+    LD = $(CC)
+    OBJDUMP = $(OPENDINGUX_SDK)/bin/mipsel-gcw0-linux-uclibc-objdump
+    CFLAGS2 += -DOS_OPENDINGUX -DCPUMARK=10 -I$(SYSROOT)/usr/include/SDL2 
 endif
 ##
 ## Linux: Android
@@ -339,6 +352,14 @@ else
     CFLAGS2 += -DCPUMARK=10 
 endif
 endif
+
+##
+## MIPS
+##
+# TODO: not working for some reason?
+# ifeq (,$(findstring mips,$(TARGET_ARCH)))
+    # CFLAGS2 += -DCPUMARK=10 
+# endif
 
 ##
 ## Handling additional MAKE_xxx options

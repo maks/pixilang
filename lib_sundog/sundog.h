@@ -96,6 +96,9 @@ Other:
 	#define ARCH_EMSCRIPTEN 
 	#define ARCH_NAME "emscripten"
     #endif
+    #ifdef __mips__
+    #define ARCH_NAME "mipsel"
+    #endif
 #endif
 
 #ifdef OS_MAEMO
@@ -104,6 +107,10 @@ Other:
 	#define OPENGLES
     #endif
     #define HEAPSIZE 32
+#endif
+
+#ifdef OS_OPENDINGUX
+    #define NOMIDI
 #endif
 
 #ifdef OS_RASPBERRY_PI

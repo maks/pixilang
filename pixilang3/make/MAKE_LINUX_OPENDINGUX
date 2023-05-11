@@ -1,0 +1,11 @@
+set -e
+
+mkdir -p ../bin/linux_mipsel
+MAKE_OPTIONS="TARGET_OS=linux_opendingux TARGET_ARCH=mipsel COLOR_TYPE=COLOR32BITS MAKE_WITH_SDL=2 STYPE=PS_STYPE_FLOAT32"
+make -j8 $MAKE_OPTIONS
+make install $MAKE_OPTIONS APPNAME_SUFFIX=.dge
+
+printf "Building OPK File...\n"
+cd ..
+cp make/resources/icon_generator/icon_32.png pixilang.png
+/opt/gcw0-toolchain/bin/mksquashfs bin/linux_mipsel/pixilang.dge  make/resources/pixi.gcw0.desktop pixilang.png pixi.opk "-all-root" "-no-xattrs" "-noappend" "-no-exports" &> /dev/null
